@@ -46,7 +46,7 @@ jobs:
         if: steps.version.outputs.changed == 'true'
       - run: pnpm build
         if: steps.version.outputs.changed == 'true'
-      - run: npm publish --access public
+      - run: npm publish --provenance --access public
         if: steps.version.outputs.changed == 'true'
       - name: Create GitHub release
         if: steps.version.outputs.changed == 'true'
