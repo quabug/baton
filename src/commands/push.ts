@@ -76,15 +76,16 @@ async function ensureBatonRepo(repoDir: string): Promise<void> {
 			output: process.stdout,
 		});
 		try {
-			const repoName = await rl.question(
+			const rawName = await rl.question(
 				"Enter a name for your baton sync repo (will be created as private on GitHub): ",
 			);
-			if (!repoName.trim()) {
+			const repoName = rawName.trim();
+			if (!repoName) {
 				throw new Error("Repo name cannot be empty.");
 			}
 
-			console.log(`Creating private repo '${repoName.trim()}'...`);
-			const repoUrl = await createGhRepo(repoName.trim());
+			console.log(`Creating private repo '${repoName}'...`);
+			const repoUrl = await createGhRepo(repoName);
 			config = { repo: repoUrl };
 			await saveConfig(config);
 			console.log(`Repo created: ${repoUrl}`);
