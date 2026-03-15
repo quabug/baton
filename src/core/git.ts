@@ -143,6 +143,8 @@ export async function createGhRepo(repoName: string): Promise<string> {
  */
 export async function initRepo(repoDir: string): Promise<void> {
 	await git(["init", "-b", "main"], repoDir);
+	await git(["config", "user.name", "baton"], repoDir);
+	await git(["config", "user.email", "baton@localhost"], repoDir);
 	await git(["commit", "--allow-empty", "-m", "init baton repo"], repoDir);
 }
 
