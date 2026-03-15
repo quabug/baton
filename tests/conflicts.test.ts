@@ -314,13 +314,22 @@ describe("formatConflictMessage", () => {
 		expect(mergeIdx).toBeLessThan(askIdx);
 	});
 
-	it("agent-hint for sessions only: asks user to choose", () => {
+	it("agent-hint for sessions only: no push needed for force", () => {
 		const msg = formatConflictMessage({
 			sessions: [makeConflict("s1")],
 			memoryFiles: [],
 		});
 		expect(msg).toContain("ask the user which option");
+		expect(msg).toContain("no push needed");
 		expect(msg).not.toContain("ALWAYS merge memory");
+	});
+
+	it("agent-hint for sessions + memory: push needed for force to sync merged memory", () => {
+		const msg = formatConflictMessage({
+			sessions: [makeConflict("s1")],
+			memoryFiles: [makeConflict("MEMORY.md")],
+		});
+		expect(msg).toContain("push needed to sync merged memory");
 	});
 
 	it("agent-hint for memory only: merges then syncs", () => {
