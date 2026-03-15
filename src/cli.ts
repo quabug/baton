@@ -1,4 +1,7 @@
 import { Command } from "commander";
+import { pull } from "./commands/pull.js";
+import { push } from "./commands/push.js";
+import { status } from "./commands/status.js";
 import { BatonError } from "./errors.js";
 
 const program = new Command();
@@ -12,22 +15,22 @@ program
 	.command("push")
 	.description("Push all sessions for the current project to GitHub")
 	.option("-f, --force", "Overwrite remote even if ahead")
-	.action(async (_options) => {
-		console.log("baton push: not yet implemented");
+	.action(async (options) => {
+		await push({ force: options.force });
 	});
 
 program
 	.command("pull")
 	.description("Restore sessions for the current project from GitHub")
 	.action(async () => {
-		console.log("baton pull: not yet implemented");
+		await pull();
 	});
 
 program
 	.command("status")
 	.description("Show current project and sync state")
 	.action(async () => {
-		console.log("baton status: not yet implemented");
+		await status();
 	});
 
 try {
