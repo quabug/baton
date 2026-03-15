@@ -79,7 +79,13 @@ export async function pull(options: {
 	);
 
 	if (hasConflicts(conflicts) && !options.force && !options.skip) {
-		throw new ConflictError(formatConflictMessage(conflicts, remoteMemoryDir));
+		throw new ConflictError(
+			formatConflictMessage(conflicts, {
+				localProjectDir,
+				remoteSessionsDir,
+				remoteMemoryDir,
+			}),
+		);
 	}
 
 	// 6. Restore to Claude Code's local storage

@@ -76,11 +76,12 @@ async function contentDiffers(pathA: string, pathB: string): Promise<boolean> {
 }
 
 /**
- * Format conflict info into a human-readable (and Claude Code-readable) message.
+ * Format conflict info into a message readable by both humans and AI agents.
+ * Includes exact file paths so an agent can read, diff, and merge files.
  */
 export function formatConflictMessage(
 	conflicts: ConflictInfo,
-	remoteMemoryDir: string,
+	ctx: ConflictContext,
 ): string {
 	const lines: string[] = [];
 	lines.push("Conflicts detected during baton pull.");
@@ -90,6 +91,8 @@ export function formatConflictMessage(
 		lines.push(`Conflicting sessions (${conflicts.sessions.length}):`);
 		for (const id of conflicts.sessions) {
 			lines.push(`  - ${id}`);
+			lines.push(`    local:  ${join(ctx.localProjectDir, `${id}.jsonl`)}`);
+			lines.push(`    remote: ${join(ctx.remoteSessionsDir, `${id}.jsonl`)}`);
 		}
 		lines.push("");
 	}
@@ -98,7 +101,8 @@ export function formatConflictMessage(
 		lines.push(`Conflicting memory files (${conflicts.memoryFiles.length}):`);
 		for (const file of conflicts.memoryFiles) {
 			lines.push(`  - ${file}`);
-			lines.push(`    remote: ${join(remoteMemoryDir, file)}`);
+			lines.push(`    local:  ${join(ctx.localProjectDir, "memory", file)}`);
+			lines.push(`    remote: ${join(ctx.remoteMemoryDir, file)}`);
 		}
 		lines.push("");
 	}
@@ -109,9 +113,37 @@ export function formatConflictMessage(
 
 	if (conflicts.memoryFiles.length > 0) {
 		lines.push("");
+		lines.push("<agent-hint>");
 		lines.push(
-			"Tip: ask Claude Code to merge the conflicting memory files by reading both local and remote versions.",
+			"To merge conflicting memory files, read both the local and remote",
 		);
+		lines.push(
+			"versions listed above, combine their content (deduplicate entries,",
+		);
+		lines.push(
+			"keep the most recent information), write the merged result to the",
+		);
+		lines.push("local path, then run `baton pull --force` to sync the rest.");
+		lines.push("</agent-hint>");
+	}
+
+	if (conflicts.sessions.length > 0) {
+		lines.push("");
+		lines.push("<agent-hint>");
+		lines.push(
+			"Session conflicts mean the same session was modified on both machines.",
+		);
+		lines.push(
+			"Sessions are conversation logs and cannot be meaningfully merged.",
+		);
+		lines.push("Choose one version:");
+		lines.push(
+			"  - `baton pull --force` to use the remote version (discard local changes)",
+		);
+		lines.push(
+			"  - `baton pull --skip` to keep the local version (skip remote updates)",
+		);
+		lines.push("</agent-hint>");
 	}
 
 	return lines.join("\n");
