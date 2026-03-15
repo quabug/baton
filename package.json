@@ -1,6 +1,6 @@
 {
   "name": "baton-cli",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "Git-backed session handoff for Claude Code",
   "type": "module",
   "bin": {
