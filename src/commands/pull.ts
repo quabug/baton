@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
 	encodeProjectDir,
@@ -70,12 +71,23 @@ export async function pull(options: {
 	const remoteSessionIds = data.sessions.map((s) => s.sessionId);
 	const remoteMemoryFiles = [...data.memory.keys()];
 
+	// Read pushed_at from meta.json for accurate remote timestamps
+	let remotePushedAt: string | undefined;
+	try {
+		const meta = JSON.parse(
+			await readFile(join(projectDir, "meta.json"), "utf-8"),
+		);
+		remotePushedAt = meta.pushed_at;
+	} catch {
+		// meta.json missing or invalid, timestamps will show "unknown"
+	}
+
 	const conflicts = await detectConflicts(
 		localSessionIds,
 		remoteSessionIds,
 		localMemoryFiles,
 		remoteMemoryFiles,
-		{ localProjectDir, remoteSessionsDir, remoteMemoryDir },
+		{ localProjectDir, remoteSessionsDir, remoteMemoryDir, remotePushedAt },
 	);
 
 	if (hasConflicts(conflicts) && !options.force && !options.skip) {
