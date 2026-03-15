@@ -1,453 +1,428 @@
-# AgentSync Architecture
+# Baton Architecture
 
 ## 1. Overview
 
-AgentSync is a **checkpoint-based session handoff system** for local CLI coding agents.
+Baton is a **checkpoint-based session handoff tool** for Claude Code.
 
-Its architecture is intentionally built around:
+Two commands: `baton push` and `baton pull`. No daemon.
 
-- project identity
-- machine-specific path mapping
-- session checkpoints
-- explicit handoff semantics
-- low-frequency durable persistence
+Its architecture is built around:
 
-It is **not** designed around always-on, bidirectional real-time state mirroring.
+- project identity from git remote
+- path virtualization via global string replacement
+- all-sessions-per-project checkpointing
+- Git-backed durable persistence
+- conflict guard via git fetch/compare
 
 ---
 
 ## 2. Architecture goals
 
-The architecture must support:
-
-1. identifying the same project across machines
-2. restoring a session on another machine with different local paths
-3. preventing default cross-device session pollution
-4. allowing explicit resume / takeover / fork flows
-5. persisting enough session state for recovery
-6. remaining usable even when offline
+1. Identify the same project across machines automatically (from git remote)
+2. Restore sessions on another machine with different local paths
+3. Prevent accidental overwrites (conflict guard)
+4. Keep it simple (no daemon, no coordination layer, no config ceremony)
+5. Work across macOS, Linux, and Windows
 
 ---
 
 ## 3. Core entities
 
 ### 3.1 Project
-A logical project shared across machines.
 
-Suggested fields:
-
-```json
-{
-  "project_id": "proj_foo",
-  "display_name": "foo",
-  "git_remote": "git@github.com:me/foo.git",
-  "default_branch": "main"
-}
-```
-
-### 3.2 Machine
-
-A specific device running AgentSync.
-
-Suggested fields:
+A logical project identified by its git remote URL.
 
 ```json
 {
-  "machine_id": "macbook-quan",
-  "hostname": "Quan-MacBook",
-  "os": "macos",
-  "username": "quan"
+  "project_id": "<hash-of-normalized-git-remote>",
+  "git_remote": "git@github.com:me/foo.git"
 }
 ```
 
-### 3.3 Path Mapping
+The project is auto-detected from the cwd's git remote. No manual linking required.
 
-Machine-local mapping from logical project to physical path.
+All of these resolve to the same `project_id`:
+- `git@github.com:me/foo.git`
+- `https://github.com/me/foo.git`
 
-```json
-{
-  "machine_id": "macbook-quan",
-  "projects": {
-    "proj_foo": {
-      "local_path": "/Users/quan/work/foo"
-    }
-  }
-}
-```
+### 3.2 Session
 
-### 3.4 Session
+A Claude Code conversation log (JSONL file) under a project.
 
-A specific coding workflow under a project.
+A project can have many sessions. All sessions are synced together.
 
-```json
-{
-  "session_id": "sess_123",
-  "project_id": "proj_foo",
-  "tool": "claude-code",
-  "status": "active",
-  "active_writer_machine_id": "macbook-quan",
-  "updated_at": "2026-03-15T12:00:00Z",
-  "base_checkpoint_revision": 7
-}
-```
+### 3.3 Checkpoint
 
-### 3.5 Checkpoint
+The full set of data pushed for a project:
 
-A restorable snapshot of a session.
-
-```json
-{
-  "session_id": "sess_123",
-  "project_id": "proj_foo",
-  "tool": "claude-code",
-  "revision": 7,
-  "messages": [
-    { "role": "user", "content": "Fix the login bug" },
-    { "role": "assistant", "content": "I found the issue." }
-  ],
-  "metadata": {
-    "cwd": "${PROJECT_ROOT}",
-    "source_machine_id": "macbook-quan"
-  }
-}
-```
-
-### 3.6 Handoff Event
-
-An explicit ownership transition between machines.
-
-```json
-{
-  "event_type": "handoff",
-  "session_id": "sess_123",
-  "from_machine_id": "macbook-quan",
-  "to_machine_id": "vps-tokyo-01",
-  "ts": "2026-03-15T12:10:00Z"
-}
-```
+- all session JSONL files (with path placeholders applied)
+- tool-results files for each session
+- project memory files
 
 ---
 
 ## 4. System components
 
-AgentSync has three main components.
+Baton has two components. No coordination layer in v0.1.
 
-### 4.1 Local Client / Daemon
+### 4.1 CLI
 
-Runs on the user's machine.
-
-Responsibilities:
-
-* observe local agent state
-* derive checkpoints from local state
-* rewrite paths into portable placeholders
-* restore portable state locally
-* manage machine config and path mappings
-* persist local queue / cache
-* optionally maintain presence / lease connection
-
-### 4.2 Optional Coordination Layer
-
-A lightweight online service, typically WebSocket-based.
+The `baton` command-line tool. Runs on the user's machine.
 
 Responsibilities:
 
-* machine online/offline presence
-* active-writer lease
-* notify when new checkpoints are available
-* notify when a session is taken over
+* auto-detect project from git remote in cwd
+* collect session data from Claude Code's local storage
+* apply path virtualization (replace / expand placeholders)
+* push checkpoints to GitHub
+* pull checkpoints from GitHub and restore locally
+* conflict detection before push
 
-Not responsible for:
+### 4.2 Persistence (GitHub repo)
 
-* long-term storage
-* authoritative session content
-* high-frequency live message streaming by default
+A single private GitHub repo stores all project data.
 
-### 4.3 Persistence Layer
-
-Durable storage for recovery and history.
-
-Recommended initial backend:
-
-* GitHub repository
+Managed via git clone/commit/push. Cached locally at `~/.baton/repo/`.
 
 Responsibilities:
 
+* store session JSONL files
+* store tool-results
+* store project memory
 * store project metadata
-* store machine mappings
-* store session metadata
-* store checkpoints
-* store handoff events
+* provide conflict detection via git history
 
 ---
 
-## 5. Data model principles
+## 5. Data model
 
 ### 5.1 Project identity is not a path
 
-Absolute paths are machine-specific and unstable.
+The project is identified by normalizing the git remote URL and hashing it.
 
-Use a stable logical identifier instead.
+This is fully automatic. No manual project linking or ID assignment needed.
 
-Recommended order:
+### 5.2 Path virtualization
 
-1. normalized Git remote URL → hash
-2. user-defined alias
-3. manual non-git project link
-
-### 5.2 Portable path placeholders
-
-Cross-machine state should not persist raw machine-local paths.
+Cross-machine session data must not contain raw machine-local paths.
 
 Supported placeholders:
 
-* `${PROJECT_ROOT}`
-* `${HOME}`
-* `${TMP}`
+* `${PROJECT_ROOT}` - the project directory (cwd where `baton push` is run)
+* `${HOME}` - user home directory
+* `${TMP}` - system temp directory
 
-Example:
+Strategy: **global string replacement** on the entire JSONL content.
 
-```json
-{
-  "cwd": "${PROJECT_ROOT}",
-  "artifact_path": "${PROJECT_ROOT}/.agentsync/artifacts/001.txt"
-}
-```
+On push, replace longest paths first:
+1. `{project_root}` → `${PROJECT_ROOT}`
+2. `{home}` → `${HOME}`
+3. `{tmp}` → `${TMP}`
 
-### 5.3 Checkpoint-first restoration
+On pull, reverse the replacement with machine-local values.
 
-The primary recovery unit is a checkpoint, not a raw mirrored state file.
+Path separators are normalized to `/` in stored checkpoints and expanded to OS-native separator on pull.
 
-This keeps the system more robust across agent versions and machine differences.
+### 5.3 What gets synced
+
+| Component | Synced? | Why |
+|-----------|---------|-----|
+| Session JSONLs (all) | Yes | The conversations |
+| `tool-results/` | Yes | Small, needed for `<persisted-output>` references |
+| `memory/` | Yes | Project-level knowledge, tiny, valuable |
+| `subagents/` | No | 92% of data, results already in main JSONL |
+| `file-history/` | No | File backups for undo, files live in git |
+| `plans/` | No | Ephemeral |
+| `tasks/` | No | Ephemeral |
 
 ---
 
-## 6. Session model
+## 6. Claude Code adapter
 
-### 6.1 Project and session are separate
+### 6.1 Local data layout
 
-A single project can have many sessions.
+Claude Code stores session data under `~/.claude/projects/`:
 
-This means:
+```text
+~/.claude/
+  sessions/{pid}.json                           # active session metadata
+  project-config.json                           # project directory name → original path
+  projects/
+    -{encoded-path}/                            # e.g. -home-dr_who-baton
+      {sessionId}.jsonl                         # main conversation log
+      memory/
+        MEMORY.md                               # project memory
+      {sessionId}/
+        tool-results/{id}.txt                   # large tool outputs
+        subagents/agent-{id}.jsonl              # (not synced)
+```
 
-* same project does not imply shared live context
-* sessions remain isolated unless explicitly connected
+### 6.2 Project directory name mapping
 
-### 6.2 Default mode: single-writer
+Claude Code encodes project paths as directory names by replacing `/` with `-`:
 
-A session should have only one active writer by default.
+| Machine | Project path | Directory name |
+|---------|-------------|----------------|
+| Linux | `/home/dr_who/baton` | `-home-dr_who-baton` |
+| macOS | `/Users/dr_who/work/baton` | `-Users-dr_who-work-baton` |
+| Windows | `C:\Users\dr_who\baton` | `-C-Users-dr_who-baton` |
 
-This avoids:
+On push, baton reads from the source machine's directory.
+On pull, baton writes to the target machine's directory (computed from local path).
 
-* mixed context
-* accidental session corruption
-* confusing parallel writes from multiple machines
+### 6.3 Session JSONL format
 
-### 6.3 Supported handoff actions
+Each line is a JSON object with a `type` field. Common types:
 
-* `resume`: continue an existing session
-* `takeover`: switch active ownership to current machine
-* `fork`: create a new session from an existing checkpoint
+- `user` - user messages and tool results
+- `progress` - assistant responses, tool calls, hook events
+- `file-history-snapshot` - file change snapshots
 
-### 6.4 Not in v0.1
-
-* multi-writer collaborative mode
-* full real-time session co-editing
+Most entries include a `cwd` field set to the project root. In rare cases it changes to a subdirectory mid-session. Global string replacement handles both cases.
 
 ---
 
 ## 7. Runtime flows
 
-## 7.1 Initialization flow
+### 7.1 First-time setup
 
-1. user runs `agentsync init`
-2. machine metadata is created
-3. GitHub repo configuration is stored
-4. local config directory is initialized
+1. User runs `baton push` or `baton pull`
+2. Baton checks `~/.baton/config.json` for existing repo
+3. If none, prompts user for a repo name
+4. Creates private repo via `gh repo create <name> --private`
+5. Clones to `~/.baton/repo/`
+6. Saves repo URL to `~/.baton/config.json`
 
-## 7.2 Project linking flow
+### 7.2 Push flow
 
-1. user runs `agentsync project link --project-id ... --path ...`
-2. machine-local mapping is persisted
-3. future restores can resolve `${PROJECT_ROOT}` correctly
+1. Auto-detect project from `git remote` in cwd
+2. Find the Claude Code project directory under `~/.claude/projects/`
+3. Collect all session JSONLs, tool-results, and memory files
+4. Apply path virtualization (global string replacement, longest path first)
+5. `git fetch` on `~/.baton/repo/`
+6. Compare local vs remote HEAD - refuse if remote is ahead (unless `--force`)
+7. Write checkpoint files to `projects/<project_hash>/`
+8. `git add` + `git commit` + `git push`
 
-## 7.3 Checkpoint creation flow
+### 7.3 Pull flow
 
-1. local daemon observes agent state
-2. adapter extracts restorable portable state
-3. local absolute paths are rewritten into placeholders
-4. checkpoint is written locally
-5. checkpoint is eventually persisted to GitHub
-
-## 7.4 Resume flow
-
-1. user runs `agentsync session resume <session_id>`
-2. latest session metadata is fetched
-3. latest checkpoint is loaded
-4. local `project_id -> path` mapping is resolved
-5. placeholders are expanded into machine-local paths
-6. local portable state is restored
-
-## 7.5 Takeover flow
-
-1. user runs `agentsync session takeover <session_id>`
-2. system checks current active writer
-3. ownership is reassigned to current machine
-4. handoff event is recorded
-5. future writes belong to the new active machine
-
-## 7.6 Fork flow
-
-1. user runs `agentsync session fork <session_id>`
-2. a new session is created from the current checkpoint
-3. the original session remains unchanged
-4. the new session becomes the current working branch
+1. Auto-detect project from `git remote` in cwd
+2. `git pull` on `~/.baton/repo/`
+3. Read checkpoint files from `projects/<project_hash>/`
+4. Expand path placeholders to machine-local values
+5. Compute local project directory name (e.g. `-root-projects-foo`)
+6. Write session JSONLs to `~/.claude/projects/{local-project-dir}/`
+7. Write tool-results to `~/.claude/projects/{local-project-dir}/{sessionId}/tool-results/`
+8. Write memory files to `~/.claude/projects/{local-project-dir}/memory/`
+9. Ensure `~/.claude/project-config.json` has a mapping for the local project directory
 
 ---
 
 ## 8. Storage layout
 
-Recommended GitHub repo structure:
+### 8.1 GitHub repo layout
 
 ```text
 projects/
-  <project_id>.json
-
-machines/
-  <machine_id>.json
-
-sessions/
-  <project_id>/
-    <session_id>/
-      session.json
-      checkpoints/
-        000001.json
-        000002.json
-      events/
-        000001-handoff.json
+  <project_hash>/
+    meta.json
+    memory/
+      MEMORY.md
+      *.md
+    sessions/
+      <session_id>.jsonl
+      <session_id>/
+        tool-results/
+          {id}.txt
 ```
 
-### Notes
+### 8.2 Local baton config
 
-* store session metadata separately from checkpoints
-* keep checkpoint files append-friendly and debuggable
-* prefer low-frequency writes over aggressive live persistence
+```text
+~/.baton/
+  config.json       # repo URL
+  repo/             # local clone of the GitHub repo
+```
 
 ---
 
-## 9. Online coordination model
+## 9. Conflict detection
 
-If a coordination service is used, it should be minimal.
+Before pushing, `baton push` runs `git fetch` and compares local vs remote HEAD. If the remote has commits not present locally, it means another machine pushed without this machine pulling first.
 
-### Recommended use
+Behavior:
+- Default: refuse with a warning, suggest `baton pull` first
+- `--force`: skip the check, use `git push --force`
 
-* presence
-* lease / active writer ownership
-* checkpoint available notifications
-* takeover notifications
-
-### Not recommended as default
-
-* full live content streaming
-* multi-writer session merging
-* broadcasting every message in real time
-
-Why:
-
-CLI coding agent workflows are usually **handoff-oriented**, not collaborative-editing-oriented.
+No custom revision tracking needed. Git's own history handles this.
 
 ---
 
 ## 10. Failure handling
 
-### 10.1 Unresolved project mapping
+### 10.1 Not a git repo
 
-If a machine cannot resolve a `project_id` to a local path:
+If cwd is not a git repo or has no remote, `baton push` / `baton pull` errors with a clear message.
 
-* mark the session as unresolved locally
-* do not attempt forced restore
-* require explicit `project link`
+### 10.2 No Claude Code sessions found
 
-### 10.2 Offline operation
+If no session JSONL files exist for the detected project, `baton push` warns and exits.
 
-The local daemon should keep:
+### 10.3 `gh` CLI not available
 
-* local cache
-* local pending queue
-* last known checkpoints
-
-The system must still allow later recovery after reconnect.
-
-### 10.3 Repeated local observation loops
-
-If local restore causes local state changes that are observed again:
-
-* attach restore origin metadata
-* suppress reprocessing recently restored state
-* deduplicate by checkpoint or event identity
-
-### 10.4 Persistence rate limits
-
-Persistence should be debounced and batched.
-
-GitHub is durable storage, not the live coordination channel.
+If `gh` is not installed or not authenticated, error with setup instructions.
 
 ---
 
 ## 11. Security and privacy notes
 
-Initial scope assumes single-user personal use.
-
-Recommended practices:
-
-* private GitHub repository
-* minimal stored metadata
-* optional encryption in future iterations
-* no unnecessary cloud retention outside persistence backend
+- Session data is stored in a **private** GitHub repository
+- Conversation logs may contain sensitive code context
+- Users should use private repos only
+- No encryption in v0.1, may be added in future iterations
 
 ---
 
-## 12. Implementation sketch
+## 12. Implementation
 
-Suggested initial stack:
+### Stack
 
-* Rust
-* `tokio`
-* `serde`
-* `serde_json`
-* `notify`
-* `reqwest`
-* local sqlite or lightweight file-backed storage
-* optional lightweight WebSocket coordination server
+| Concern | Tool | Why |
+|---------|------|-----|
+| Language | **TypeScript** | Claude Code users already have Node installed |
+| Package manager | **pnpm** | Strict, fast, standard for new projects |
+| Build | **tsup** | Wraps esbuild, outputs CJS+ESM+types in one step |
+| Dev runner | **tsx** | Run TS directly without compiling during development |
+| CLI framework | **commander** | Lightweight, mature, good TypeScript support |
+| Testing | **vitest** | Fast, native TypeScript/ESM support |
+| Lint / format | **biome** | Single tool replaces ESLint+Prettier, fast |
+| Type checking | **tsc --noEmit** | Separate from build, run in CI |
+| External CLIs | **git**, **gh** | For repo operations and GitHub auth |
 
-### Suggested CLI surface
+### Distribution
 
-```bash
-agentsync init
-agentsync start
-agentsync status
-agentsync project link --project-id proj_foo --path /Users/quan/work/foo
-agentsync session list
-agentsync session resume <session_id>
-agentsync session takeover <session_id>
-agentsync session fork <session_id>
+npm package (e.g. `npm install -g baton-cli` or `npx baton-cli push`)
+
+### Project structure
+
+```text
+src/
+  cli.ts                    # entry point, commander setup, top-level error handling
+  errors.ts                 # all custom error classes
+  commands/
+    push.ts                 # baton push - orchestrates core + adapter
+    pull.ts                 # baton pull
+    status.ts               # baton status
+  core/
+    project.ts              # git remote → project hash
+    paths.ts                # path virtualization (replace / expand)
+    git.ts                  # shell out to git / gh
+    config.ts               # ~/.baton/config.json management
+  adapters/
+    claude-code/
+      reader.ts             # collect sessions, tool-results, memory from local state
+      writer.ts             # restore sessions to correct local paths
+      paths.ts              # project directory name encoding/decoding
 ```
 
+### Dependency flow
+
+```text
+cli.ts
+  → commands/push.ts
+      → core/project.ts          (detect project)
+      → adapters/claude-code/reader.ts  (collect local data)
+      → core/paths.ts            (virtualize paths)
+      → core/git.ts              (push to GitHub)
+  → commands/pull.ts
+      → core/project.ts          (detect project)
+      → core/git.ts              (pull from GitHub)
+      → core/paths.ts            (expand paths)
+      → adapters/claude-code/writer.ts  (restore locally)
+```
+
+Commands call core and adapter directly. No service layer. Each command function reads top-to-bottom as a linear flow.
+
+### Adapter pattern
+
+All Claude Code-specific logic lives under `adapters/claude-code/`. The core knows nothing about Claude Code's file layout, directory naming, or JSONL format.
+
+The adapter interface is implicit (not a formal TypeScript interface in v0.1). It exposes two operations:
+
+- **read**: given a project path, return all session data (JSONLs, tool-results, memory)
+- **write**: given session data + local project path, write it to Claude Code's expected locations
+
+To add support for another agent (Gemini CLI, Codex, etc.) in the future, add a new adapter under `adapters/` without touching core or commands.
+
+### Error handling
+
+Custom error classes with descriptive messages. Throw where it fails, catch at the top level in `cli.ts`.
+
+```typescript
+// errors.ts
+class BatonError extends Error {}
+class ProjectNotFoundError extends BatonError {}
+class NoSessionsError extends BatonError {}
+class ConflictError extends BatonError {}
+class GitNotFoundError extends BatonError {}
+class GhNotFoundError extends BatonError {}
+```
+
+- **Throw at the point of failure** with a clear message describing what went wrong
+- **Catch in `cli.ts`** to print user-friendly output and set exit code
+- **No Result types or error wrapping** - keep it flat and traceable
+- AI agents can find the throw site, read the message, and fix the issue directly
+
 ---
 
-## 13. Architectural summary
+## 13. Design references
 
-AgentSync is best understood as:
+Baton's approach to cross-platform path handling draws from established patterns in existing sync/config tools.
 
-* **project-aware**
-* **checkpoint-based**
-* **single-writer by default**
-* **Git-backed**
-* **handoff-first**
+### A. Logical ID binding (Syncthing)
+
+Syncthing syncs folder contents across devices where **local paths can be completely different**. Devices are tied together by a logical **folder ID**, not by matching absolute paths. Each device independently configures its own local path for a given folder ID.
+
+Baton equivalent: `project_id` derived from git remote. Each machine resolves it to its own local path.
+
+### B. Template/placeholder rendering (chezmoi, yadm)
+
+chezmoi stores configuration as **templates** with variables like hostname, OS, and home directory. Files are rendered into machine-specific content at apply time. yadm takes a similar approach with templates and alternate files selected by OS or hostname.
+
+Baton equivalent: `${PROJECT_ROOT}`, `${HOME}`, `${TMP}` placeholders in stored checkpoints, expanded to machine-local values on pull.
+
+### C. Machine-specific overrides (yadm)
+
+yadm accepts that some files cannot be universal. It supports **alternate versions** per platform/host and a bootstrap mechanism for platform-specific initialization after clone.
+
+Baton equivalent: some session data is portable (conversation content), some is inherently machine-specific (project directory names, PID files). Baton syncs the portable parts and regenerates machine-specific parts on restore.
+
+### D. Central storage with local restore (Mackup)
+
+Mackup backs up application settings to a central location, then **links or copies them back** to where each application expects them on each machine. The storage format doesn't need to match the application's native layout.
+
+Baton equivalent: checkpoints in GitHub use Baton's own layout (`projects/<hash>/sessions/`). On pull, data is restored to Claude Code's expected local layout (`~/.claude/projects/`).
+
+### Common principle
+
+These tools don't try to make paths identical across machines. Instead they:
+
+> **Elevate shared objects from physical paths to logical identities / templates / variants, and let each machine restore to its own local paths.**
+
+---
+
+## 14. Architectural summary
+
+Baton is best understood as:
+
+* **project-aware** (auto-detect from git remote)
+* **checkpoint-based** (all sessions per project)
+* **Git-backed** (private GitHub repo)
+* **simple** (two commands, no daemon)
 
 It is intentionally optimized for:
 
-> "Pause here, continue there."
+> "Push here, pull there, keep working."
 
 not for:
 
