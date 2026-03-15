@@ -1,4 +1,4 @@
-name: Auto version bump
+name: Auto version bump and publish
 
 on:
   pull_request:
@@ -6,16 +6,16 @@ on:
     branches: [main]
 
 jobs:
-  bump:
+  bump-and-publish:
     if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
     steps:
       - uses: actions/checkout@v4
         with:
           ref: main
-          token: ${{ secrets.GITHUB_TOKEN }}
       - name: Determine bump type from branch name
         id: bump
         run: |
@@ -29,21 +29,43 @@ jobs:
           else
             echo "type=none" >> "$GITHUB_OUTPUT"
           fi
-          echo "Branch: $BRANCH -> Bump: $(cat "$GITHUB_OUTPUT" | grep type | cut -d= -f2)"
       - name: Skip if no bump needed
         if: steps.bump.outputs.type == 'none'
         run: echo "No version bump for this branch prefix. Skipping."
+      - uses: pnpm/action-setup@v4
+        if: steps.bump.outputs.type != 'none'
       - uses: actions/setup-node@v4
         if: steps.bump.outputs.type != 'none'
         with:
           node-version: 22
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      - run: npm install -g npm@latest
+        if: steps.bump.outputs.type != 'none'
+      - run: pnpm install
+        if: steps.bump.outputs.type != 'none'
+      - run: pnpm test
+        if: steps.bump.outputs.type != 'none'
+      - run: pnpm build
+        if: steps.bump.outputs.type != 'none'
       - name: Bump version
+        if: steps.bump.outputs.type != 'none'
+        id: version
+        run: |
+          npm version ${{ steps.bump.outputs.type }} --no-git-tag-version
+          VERSION=$(node -p "require('./package.json').version")
+          echo "new=$VERSION" >> "$GITHUB_OUTPUT"
+      - name: Publish to npm
+        if: steps.bump.outputs.type != 'none'
+        run: npm publish --provenance --access public
+      - name: Commit version bump and create release
         if: steps.bump.outputs.type != 'none'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          npm version ${{ steps.bump.outputs.type }} --no-git-tag-version
-          VERSION=$(node -p "require('./package.json').version")
           git add package.json
-          git commit -m "Bump version to ${VERSION}"
+          git commit -m "Bump version to ${{ steps.version.outputs.new }}"
           git push
+          gh release create "v${{ steps.version.outputs.new }}" --generate-notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
