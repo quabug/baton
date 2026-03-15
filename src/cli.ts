@@ -35,7 +35,10 @@ try {
 } catch (error) {
 	if (error instanceof BatonError) {
 		console.error(`Error: ${error.message}`);
-		process.exit(1);
+	} else {
+		console.error(
+			`Unexpected error: ${error instanceof Error ? error.message : String(error)}`,
+		);
 	}
-	throw error;
+	process.exit(1);
 }

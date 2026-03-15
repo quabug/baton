@@ -30,12 +30,22 @@ describe("normalizeGitRemote", () => {
 		expect(normalizeGitRemote("ssh://git@github.com/user/repo")).toBe("github.com/user/repo");
 	});
 
-	it("produces same result for SSH and HTTPS variants of same repo", () => {
+	it("normalizes git:// protocol with .git suffix", () => {
+		expect(normalizeGitRemote("git://github.com/user/repo.git")).toBe("github.com/user/repo");
+	});
+
+	it("normalizes git:// protocol without .git suffix", () => {
+		expect(normalizeGitRemote("git://github.com/user/repo")).toBe("github.com/user/repo");
+	});
+
+	it("produces same result for SSH, HTTPS, ssh://, and git:// variants of same repo", () => {
 		const ssh = normalizeGitRemote("git@github.com:me/foo.git");
 		const https = normalizeGitRemote("https://github.com/me/foo.git");
 		const sshProto = normalizeGitRemote("ssh://git@github.com/me/foo.git");
+		const gitProto = normalizeGitRemote("git://github.com/me/foo.git");
 		expect(ssh).toBe(https);
 		expect(ssh).toBe(sshProto);
+		expect(ssh).toBe(gitProto);
 	});
 
 	it("handles whitespace around URL", () => {

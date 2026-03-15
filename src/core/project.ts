@@ -1,9 +1,11 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { promisify } from "node:util";
-import { ProjectNotFoundError } from "../errors.js";
+import { GitNotFoundError, ProjectNotFoundError } from "../errors.js";
 
 const execFileAsync = promisify(execFile);
+
+const GIT_TIMEOUT_MS = 10_000;
 
 /**
  * Detect the git remote URL from the current working directory.
@@ -14,7 +16,7 @@ export async function getGitRemote(cwd: string): Promise<string> {
 		const { stdout } = await execFileAsync(
 			"git",
 			["remote", "get-url", "origin"],
-			{ cwd },
+			{ cwd, timeout: GIT_TIMEOUT_MS },
 		);
 		const remote = stdout.trim();
 		if (!remote) {
@@ -25,10 +27,21 @@ export async function getGitRemote(cwd: string): Promise<string> {
 		return remote;
 	} catch (error) {
 		if (error instanceof ProjectNotFoundError) throw error;
+		if (isGitNotInstalled(error)) {
+			throw new GitNotFoundError(
+				"git is not installed or not found in PATH. Please install git first.",
+			);
+		}
 		throw new ProjectNotFoundError(
 			"Not a git repository or no 'origin' remote configured. Run this command from a git repository.",
 		);
 	}
+}
+
+function isGitNotInstalled(error: unknown): boolean {
+	if (!(error instanceof Error)) return false;
+	const err = error as NodeJS.ErrnoException;
+	return err.code === "ENOENT";
 }
 
 /**
@@ -39,6 +52,7 @@ export async function getGitRemote(cwd: string): Promise<string> {
  * - https://github.com/user/repo.git → github.com/user/repo
  * - https://github.com/user/repo → github.com/user/repo
  * - ssh://git@github.com/user/repo.git → github.com/user/repo
+ * - git://github.com/user/repo.git → github.com/user/repo
  */
 export function normalizeGitRemote(remote: string): string {
 	const normalized = remote.trim();
@@ -49,12 +63,12 @@ export function normalizeGitRemote(remote: string): string {
 		return `${sshMatch[1]}/${sshMatch[2]}`;
 	}
 
-	// ssh:// protocol: ssh://git@github.com/user/repo.git
-	const sshProtoMatch = normalized.match(
-		/^ssh:\/\/[\w.-]+@([\w.-]+)\/(.*?)(?:\.git)?$/,
+	// ssh:// or git:// protocol: ssh://git@github.com/user/repo.git
+	const protoMatch = normalized.match(
+		/^(?:ssh|git):\/\/(?:[\w.-]+@)?([\w.-]+)\/(.*?)(?:\.git)?$/,
 	);
-	if (sshProtoMatch) {
-		return `${sshProtoMatch[1]}/${sshProtoMatch[2]}`;
+	if (protoMatch) {
+		return `${protoMatch[1]}/${protoMatch[2]}`;
 	}
 
 	// HTTPS: https://github.com/user/repo.git
