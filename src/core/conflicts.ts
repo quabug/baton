@@ -1,26 +1,29 @@
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 
+export interface FileConflict {
+	name: string;
+	localPath: string;
+	remotePath: string;
+	localModified: string;
+	remoteModified: string;
+}
+
 export interface ConflictInfo {
-	/** Sessions that exist both locally and remotely with different content */
-	sessions: string[];
-	/** Memory files that exist both locally and remotely with different content */
-	memoryFiles: string[];
+	sessions: FileConflict[];
+	memoryFiles: FileConflict[];
 }
 
 export interface ConflictContext {
-	/** Local Claude Code project directory */
 	localProjectDir: string;
-	/** Remote checkpoint sessions directory in baton repo */
 	remoteSessionsDir: string;
-	/** Remote checkpoint memory directory in baton repo */
 	remoteMemoryDir: string;
 }
 
 /**
  * Detect content-based conflicts between local and remote data.
  * Only reports files that actually differ in content.
- * Identical files are not conflicts (safe to overwrite with same data).
+ * Includes modification timestamps for each conflicting file.
  */
 export async function detectConflicts(
 	localSessionIds: string[],
@@ -37,32 +40,39 @@ export async function detectConflicts(
 	const remoteMemSet = new Set(remoteMemoryFiles);
 	const overlappingMemory = localMemoryFiles.filter((f) => remoteMemSet.has(f));
 
-	const sessions: string[] = [];
+	const sessions: FileConflict[] = [];
 	for (const id of overlappingSessionIds) {
 		const localPath = join(ctx.localProjectDir, `${id}.jsonl`);
 		const remotePath = join(ctx.remoteSessionsDir, `${id}.jsonl`);
 		if (await contentDiffers(localPath, remotePath)) {
-			sessions.push(id);
+			sessions.push({
+				name: id,
+				localPath,
+				remotePath,
+				localModified: await getModifiedTime(localPath),
+				remoteModified: await getModifiedTime(remotePath),
+			});
 		}
 	}
 
-	const memoryFiles: string[] = [];
+	const memoryFiles: FileConflict[] = [];
 	for (const file of overlappingMemory) {
 		const localPath = join(ctx.localProjectDir, "memory", file);
 		const remotePath = join(ctx.remoteMemoryDir, file);
 		if (await contentDiffers(localPath, remotePath)) {
-			memoryFiles.push(file);
+			memoryFiles.push({
+				name: file,
+				localPath,
+				remotePath,
+				localModified: await getModifiedTime(localPath),
+				remoteModified: await getModifiedTime(remotePath),
+			});
 		}
 	}
 
 	return { sessions, memoryFiles };
 }
 
-/**
- * Check if two files have different content.
- * Returns true if content differs, false if identical.
- * Returns false if either file can't be read (treat as no conflict).
- */
 async function contentDiffers(pathA: string, pathB: string): Promise<boolean> {
 	try {
 		const [contentA, contentB] = await Promise.all([
@@ -75,44 +85,97 @@ async function contentDiffers(pathA: string, pathB: string): Promise<boolean> {
 	}
 }
 
+async function getModifiedTime(filePath: string): Promise<string> {
+	try {
+		const s = await stat(filePath);
+		return formatRelativeTime(s.mtime);
+	} catch {
+		return "unknown";
+	}
+}
+
+function formatRelativeTime(date: Date): string {
+	const now = Date.now();
+	const diffMs = now - date.getTime();
+	const diffMins = Math.floor(diffMs / 60_000);
+	const diffHours = Math.floor(diffMs / 3_600_000);
+	const diffDays = Math.floor(diffMs / 86_400_000);
+
+	if (diffMins < 1) return "just now";
+	if (diffMins < 60) return `${diffMins} minute(s) ago`;
+	if (diffHours < 24) return `${diffHours} hour(s) ago`;
+	return `${diffDays} day(s) ago`;
+}
+
 /**
- * Format conflict info into a human-readable (and Claude Code-readable) message.
+ * Format conflict info into a message readable by both humans and AI agents.
  */
-export function formatConflictMessage(
-	conflicts: ConflictInfo,
-	remoteMemoryDir: string,
-): string {
+export function formatConflictMessage(conflicts: ConflictInfo): string {
 	const lines: string[] = [];
 	lines.push("Conflicts detected during baton pull.");
 	lines.push("");
 
 	if (conflicts.sessions.length > 0) {
 		lines.push(`Conflicting sessions (${conflicts.sessions.length}):`);
-		for (const id of conflicts.sessions) {
-			lines.push(`  - ${id}`);
+		for (const c of conflicts.sessions) {
+			lines.push(`  - ${c.name}`);
+			lines.push(`    local:  ${c.localPath} (modified ${c.localModified})`);
+			lines.push(`    remote: ${c.remotePath} (modified ${c.remoteModified})`);
 		}
 		lines.push("");
 	}
 
 	if (conflicts.memoryFiles.length > 0) {
 		lines.push(`Conflicting memory files (${conflicts.memoryFiles.length}):`);
-		for (const file of conflicts.memoryFiles) {
-			lines.push(`  - ${file}`);
-			lines.push(`    remote: ${join(remoteMemoryDir, file)}`);
+		for (const c of conflicts.memoryFiles) {
+			lines.push(`  - ${c.name}`);
+			lines.push(`    local:  ${c.localPath} (modified ${c.localModified})`);
+			lines.push(`    remote: ${c.remotePath} (modified ${c.remoteModified})`);
 		}
 		lines.push("");
 	}
 
-	lines.push("To resolve:");
-	lines.push("  baton pull --force    overwrite all local with remote");
-	lines.push("  baton pull --skip     only pull non-conflicting files");
-
+	lines.push("Choose how to resolve:");
+	lines.push("  1. Overwrite local with remote (lose local changes)");
+	lines.push(
+		"  2. Keep local, skip remote (local will overwrite remote on next push)",
+	);
 	if (conflicts.memoryFiles.length > 0) {
-		lines.push("");
 		lines.push(
-			"Tip: ask Claude Code to merge the conflicting memory files by reading both local and remote versions.",
+			"  3. Merge memory files (agent reads both versions and combines them)",
 		);
 	}
+	lines.push("");
+
+	lines.push("Or use flags directly:");
+	lines.push(
+		"  baton pull --force    option 1: overwrite all local with remote",
+	);
+	lines.push(
+		"  baton pull --skip     option 2: only pull non-conflicting files",
+	);
+
+	lines.push("");
+	lines.push("<agent-hint>");
+	lines.push("Ask the user which option they prefer. Then follow through:");
+	lines.push("");
+	if (conflicts.sessions.length > 0) {
+		lines.push("For sessions (cannot be merged — pick one version):");
+		lines.push("  Option 1: run `baton pull --force`, then `baton push`");
+		lines.push("  Option 2: run `baton pull --skip`, then `baton push`");
+		lines.push("");
+	}
+	if (conflicts.memoryFiles.length > 0) {
+		lines.push("For memory files (can be merged):");
+		lines.push("  Option 1: run `baton pull --force`, then `baton push`");
+		lines.push("  Option 2: run `baton pull --skip`, then `baton push`");
+		lines.push("  Option 3: read both local and remote files listed above,");
+		lines.push("    merge their content (deduplicate, keep most recent info),");
+		lines.push("    write merged result to local path,");
+		lines.push("    then run `baton pull --skip` and `baton push`");
+		lines.push("");
+	}
+	lines.push("</agent-hint>");
 
 	return lines.join("\n");
 }

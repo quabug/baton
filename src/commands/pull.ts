@@ -79,12 +79,16 @@ export async function pull(options: {
 	);
 
 	if (hasConflicts(conflicts) && !options.force && !options.skip) {
-		throw new ConflictError(formatConflictMessage(conflicts, remoteMemoryDir));
+		throw new ConflictError(formatConflictMessage(conflicts));
 	}
 
 	// 6. Restore to Claude Code's local storage
-	const skipSessions = options.skip ? new Set(conflicts.sessions) : undefined;
-	const skipMemory = options.skip ? new Set(conflicts.memoryFiles) : undefined;
+	const skipSessions = options.skip
+		? new Set(conflicts.sessions.map((c) => c.name))
+		: undefined;
+	const skipMemory = options.skip
+		? new Set(conflicts.memoryFiles.map((c) => c.name))
+		: undefined;
 
 	await restoreProjectData(cwd, data, {
 		skipSessions,
