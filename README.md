@@ -45,7 +45,6 @@ It focuses on one job:
 - **Node.js**: v18 or newer.
 - **Git**: Your project must be a git repository with a configured remote origin.
 - **GitHub CLI (`gh`)**: Required for creating the private state repository on your first `baton push` (must be authenticated).
-- **Claude Code**: The [`@anthropic-ai/claude-code`](https://www.npmjs.com/package/@anthropic-ai/claude-code) CLI must be installed.
 
 ---
 
