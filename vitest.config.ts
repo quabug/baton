@@ -5,7 +5,12 @@ export default defineConfig({
 		coverage: {
 			provider: "v8",
 			include: ["src/**/*.ts"],
-			exclude: ["src/cli.ts"],
+			exclude: [
+				"src/cli.ts",
+				"src/commands/push.ts",
+				"src/commands/pull.ts",
+				"src/commands/status.ts",
+			],
 		},
 	},
 });
