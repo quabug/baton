@@ -46,8 +46,6 @@ jobs:
         if: steps.bump.outputs.type != 'none'
       - run: pnpm test
         if: steps.bump.outputs.type != 'none'
-      - run: pnpm build
-        if: steps.bump.outputs.type != 'none'
       - name: Bump version
         if: steps.bump.outputs.type != 'none'
         id: version
@@ -55,6 +53,8 @@ jobs:
           npm version ${{ steps.bump.outputs.type }} --no-git-tag-version
           VERSION=$(node -p "require('./package.json').version")
           echo "new=$VERSION" >> "$GITHUB_OUTPUT"
+      - run: pnpm build
+        if: steps.bump.outputs.type != 'none'
       - name: Publish to npm
         if: steps.bump.outputs.type != 'none'
         run: npm publish --provenance --access public
