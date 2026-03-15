@@ -2,6 +2,8 @@
 
 ![quabug Banner](./.assets/banner.png)
 
+[![npm version](https://img.shields.io/npm/v/baton-cli.svg)](https://www.npmjs.com/package/baton-cli)
+
 **Baton** is a session handoff tool for Claude Code across machines.
 
 It solves one problem:
@@ -35,6 +37,24 @@ It focuses on one job:
 ## One-line positioning
 
 **Git-backed session handoff for Claude Code.**
+
+---
+
+## Prerequisites
+
+- **Node.js**: v18 or newer.
+- **Git**: Your project must be a git repository with a configured remote origin.
+- **Claude Code**: The [`@anthropic-ai/claude-code`](https://www.npmjs.com/package/@anthropic-ai/claude-code) CLI must be installed.
+
+---
+
+## Installation
+
+Install Baton globally via npm:
+
+```bash
+npm install -g baton-cli
+```
 
 ---
 
