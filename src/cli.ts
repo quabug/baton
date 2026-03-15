@@ -4,12 +4,14 @@ import { push } from "./commands/push.js";
 import { status } from "./commands/status.js";
 import { BatonError } from "./errors.js";
 
+declare const __VERSION__: string;
+
 const program = new Command();
 
 program
 	.name("baton")
 	.description("Git-backed session handoff for Claude Code")
-	.version("0.1.0");
+	.version(__VERSION__);
 
 program
 	.command("push")
