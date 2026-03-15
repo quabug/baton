@@ -37,7 +37,18 @@ export async function push(options: { force?: boolean }): Promise<void> {
 			const ahead = await isRemoteAhead(repoDir);
 			if (ahead) {
 				throw new ConflictError(
-					"Remote has changes you haven't pulled. Run 'baton pull' first, or use 'baton push --force' to overwrite.",
+					[
+						"Remote has changes you haven't pulled.",
+						"",
+						"To resolve:",
+						"  baton pull          pull remote changes first, then push again",
+						"  baton push --force  overwrite remote with local (discard remote changes)",
+						"",
+						"<agent-hint>",
+						"Run `baton pull` first. If pull reports conflicts, ask the user to choose.",
+						"After resolving, run `baton push` to sync.",
+						"</agent-hint>",
+					].join("\n"),
 				);
 			}
 		} catch (error) {
