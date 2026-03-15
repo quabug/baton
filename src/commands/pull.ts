@@ -1,12 +1,11 @@
 import { join } from "node:path";
-import { createInterface } from "node:readline/promises";
 import { listLocalSessionIds } from "../adapters/claude-code/reader.js";
 import { restoreProjectData } from "../adapters/claude-code/writer.js";
 import { getRepoDir } from "../core/config.js";
 import { pullRepo, repoExists } from "../core/git.js";
 import { expandPaths, getLocalPathContext } from "../core/paths.js";
 import { detectProject } from "../core/project.js";
-import { NoSessionsError } from "../errors.js";
+import { ConflictError, NoSessionsError } from "../errors.js";
 import { readCheckpoint } from "./checkpoint.js";
 import { ensureBatonRepo } from "./setup.js";
 
@@ -47,24 +46,9 @@ export async function pull(options: { force?: boolean }): Promise<void> {
 		const conflicts = localIds.filter((id) => remoteIds.has(id));
 
 		if (conflicts.length > 0) {
-			console.log(
-				`Warning: ${conflicts.length} local session(s) will be overwritten.`,
+			throw new ConflictError(
+				`${conflicts.length} local session(s) would be overwritten. Use 'baton pull --force' to proceed.`,
 			);
-			const rl = createInterface({
-				input: process.stdin,
-				output: process.stdout,
-			});
-			try {
-				const answer = await rl.question("Continue? (y/N): ");
-				if (answer.trim().toLowerCase() !== "y") {
-					console.log(
-						"Pull cancelled. Use 'baton pull --force' to skip this check.",
-					);
-					return;
-				}
-			} finally {
-				rl.close();
-			}
 		}
 	}
 
