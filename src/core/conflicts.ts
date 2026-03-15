@@ -182,7 +182,15 @@ export function formatConflictMessage(conflicts: ConflictInfo): string {
 
 	if (conflicts.sessions.length > 0) {
 		lines.push("Then ask the user which option they prefer for sessions:");
-		lines.push("  Option 1: run `baton pull --force`, then `baton push`");
+		if (conflicts.memoryFiles.length > 0) {
+			lines.push(
+				"  Option 1: run `baton pull --force`, then `baton push` (push needed to sync merged memory)",
+			);
+		} else {
+			lines.push(
+				"  Option 1: run `baton pull --force` (no push needed, local matches remote)",
+			);
+		}
 		lines.push("  Option 2: run `baton pull --skip`, then `baton push`");
 	} else {
 		lines.push(
