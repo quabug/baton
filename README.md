@@ -1,124 +1,51 @@
-# AgentSync
+# Baton
 
-**AgentSync** is a cross-device session handoff tool for local CLI coding agents.
+**Baton** is a session handoff tool for Claude Code across machines.
 
-It is **not** trying to become a universal memory platform or a real-time collaborative sync engine.
+It solves one problem:
 
-Instead, it solves a more practical problem:
+> Can I continue the same Claude Code session on another machine without losing context?
 
-> Can I continue the same coding session on another machine without losing context?
-
-AgentSync is designed for developers who work across:
-
-- macOS laptops
-- Linux VPS / remote servers
-- local CLI agents such as Claude Code
-
-Its core idea is simple:
-
-- identify the same project across machines
-- capture a restorable session checkpoint
-- let another machine **resume**, **take over**, or **fork** that session safely
+```bash
+baton push   # on machine A
+baton pull   # on machine B
+```
 
 ---
 
 ## Why it exists
 
-CLI coding agents are great for day-to-day development, but cross-device workflows are still painful:
+Claude Code sessions are trapped on one machine:
 
-- session context stays trapped on one machine
-- macOS and Linux use different paths, usernames, and home directories
+- session context doesn't travel between devices
+- macOS, Linux, and Windows use different paths, usernames, and home directories
 - the same repo often lives at different absolute paths on different machines
-- opening the same project on two machines can easily pollute context
-- existing tools are mostly about config sync, not session handoff
+- existing tools sync config, not coding sessions
 
-AgentSync does not try to replace the agent itself.
+Baton does not try to replace the agent itself.
 
 It focuses on one job:
 
-**safe session handoff across machines**
+**push a session here, pull it there, keep working.**
 
 ---
 
 ## One-line positioning
 
-**Git-backed session handoff for local coding agents.**
-
----
-
-## Core concepts
-
-### Project
-A logical code project, independent of local absolute paths.
-
-### Session
-A specific coding workflow / conversation.
-
-### Checkpoint
-A restorable snapshot of a session.
-
-### Handoff
-The act of continuing a session from machine A on machine B.
-
----
-
-## Default behavior
-
-AgentSync is built around **handoff**, not always-on real-time sync.
-
-- multiple sessions can exist under the same `project_id`
-- different sessions do **not** affect each other by default
-- the same session uses **single-writer** mode by default
-- another machine must explicitly `resume` or `takeover`
-- experimental parallel work should use `fork`
-
-This avoids turning "same repo on two machines" into "shared unstable agent brain."
-
----
-
-## What AgentSync is not
-
-AgentSync is **not**:
-
-- a vector database
-- a semantic memory system
-- a multi-user collaboration platform
-- a full replacement for native agent state
-- a generic config sync tool
-
----
-
-## What v0.1 focuses on
-
-The first version is intentionally narrow.
-
-### In scope
-- Claude Code only
-- macOS + Linux
-- project identity and path mapping
-- checkpoint-based session restore
-- `resume / takeover / fork`
-- GitHub-backed persistence
-- optional presence / lease notifications
-
-### Out of scope
-- Gemini CLI
-- Codex
-- real-time collaborative editing
-- team sharing
-- Windows support
-- full native state restoration guarantees
+**Git-backed session handoff for Claude Code.**
 
 ---
 
 ## How it works
 
-1. AgentSync identifies a project using a stable `project_id`
-2. Each machine maps that `project_id` to its own local path
-3. AgentSync observes the local agent state and produces a checkpoint
-4. The checkpoint is persisted to GitHub
-5. Another machine can pull the checkpoint and continue the session
-6. Path placeholders are rehydrated into machine-specific local paths
+1. You run `baton push` from a project directory
+2. Baton auto-detects the project from the git remote
+3. All Claude Code sessions for that project are captured
+4. Absolute paths are replaced with portable placeholders
+5. The checkpoint is pushed to a private GitHub repo
+6. On another machine, `baton pull` restores the sessions
+7. Placeholders are expanded to machine-local paths
+8. Claude Code can continue where you left off
 
 ---
 
@@ -126,81 +53,72 @@ The first version is intentionally narrow.
 
 Same repo, different machines:
 
-- macOS: `/Users/quan/work/foo`
+- macOS: `/Users/dr_who/work/foo`
 - Linux: `/root/projects/foo`
+- Windows: `C:\Users\dr_who\work\foo`
 
-AgentSync treats them as the same logical project:
+Baton identifies them as the same project from the git remote:
 
-```json
-{
-  "project_id": "proj_foo",
-  "git_remote": "git@github.com:me/foo.git"
-}
+```bash
+# on macOS
+cd /Users/dr_who/work/foo
+baton push
+
+# on Linux
+cd /root/projects/foo
+baton pull
 ```
 
-Each machine stores its own mapping:
+Path placeholders handle the differences automatically:
 
-```json
-{
-  "machine_id": "macbook-quan",
-  "projects": {
-    "proj_foo": {
-      "local_path": "/Users/quan/work/foo"
-    }
-  }
-}
-```
+| Placeholder | macOS | Linux | Windows |
+|-------------|-------|-------|---------|
+| `${PROJECT_ROOT}` | `/Users/dr_who/work/foo` | `/root/projects/foo` | `C:\Users\dr_who\work\foo` |
+| `${HOME}` | `/Users/dr_who` | `/root` | `C:\Users\dr_who` |
 
-```json
-{
-  "machine_id": "vps-tokyo-01",
-  "projects": {
-    "proj_foo": {
-      "local_path": "/root/projects/foo"
-    }
-  }
-}
+---
+
+## What gets synced
+
+| Component | Synced? | Why |
+|-----------|---------|-----|
+| Session conversation logs (all) | Yes | The sessions themselves |
+| Tool results | Yes | Small, needed for reference integrity |
+| Project memory | Yes | Tiny, valuable for continuity |
+| Subagent logs | No | Too large, results already in main conversation |
+
+---
+
+## CLI
+
+```bash
+baton push              # push all sessions for this project
+baton push --force      # overwrite remote even if ahead
+baton pull              # restore sessions locally
+baton status            # show current project and sync state
 ```
 
 ---
 
-## CLI sketch
+## What Baton is not
 
-```bash
-agentsync init
-agentsync start
-agentsync project link --project-id proj_foo --path /Users/quan/work/foo
-agentsync session list
-agentsync session resume <session_id>
-agentsync session takeover <session_id>
-agentsync session fork <session_id>
-```
+Baton is **not**:
+
+- a real-time sync engine
+- a multi-user collaboration platform
+- a vector database or semantic memory system
+- a config sync tool
+- a full native state restoration guarantee
 
 ---
 
 ## Design principles
 
-* **Project-aware**: project identity is not a local path
+* **Project-aware**: project identity comes from git remote, not local paths
 * **Checkpoint-first**: restore from snapshots, not fragile live mirroring
-* **Single-writer by default**: prevent accidental session corruption
 * **Portable before native**: prioritize continuity over perfect internal restoration
 * **Git-backed**: use GitHub for durable history and recovery
-
----
-
-## Relationship to existing sync tools
-
-AgentSync is **not** primarily a config sync tool.
-
-A config sync tool answers:
-
-> How do I keep the same CLI tool setup on multiple machines?
-
-AgentSync answers:
-
-> How do I continue the same coding session on another machine safely?
-
-That distinction matters.
+* **Simple**: two commands, no daemon, no config ceremony
 
 ---
 
@@ -210,10 +128,10 @@ Early design / MVP planning.
 
 v0.1 target:
 
-> Make a Claude Code session restorable across macOS and Linux for the same logical project, with explicit handoff semantics.
+> Push/pull Claude Code sessions across macOS, Linux, and Windows for the same logical project.
 
 ---
 
 ## License
 
-TBD
+MIT
