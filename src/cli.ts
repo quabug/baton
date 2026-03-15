@@ -22,8 +22,9 @@ program
 program
 	.command("pull")
 	.description("Restore sessions for the current project from GitHub")
-	.action(async () => {
-		await pull();
+	.option("-f, --force", "Overwrite local sessions without confirmation")
+	.action(async (options) => {
+		await pull({ force: options.force });
 	});
 
 program

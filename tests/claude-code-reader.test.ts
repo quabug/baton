@@ -2,7 +2,10 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { collectProjectData } from "../src/adapters/claude-code/reader.js";
+import {
+	collectProjectData,
+	listLocalSessionIds,
+} from "../src/adapters/claude-code/reader.js";
 import { NoSessionsError } from "../src/errors.js";
 
 // Mock the Claude projects directory to use our temp dir
@@ -186,5 +189,40 @@ describe("collectProjectData", () => {
 
 		const data = await collectProjectData("/test/project");
 		expect(data.projectDirName).toBe("-test-project");
+	});
+});
+
+describe("listLocalSessionIds", () => {
+	let tempDir: string;
+	let projectDir: string;
+
+	beforeEach(async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "baton-reader-test-"));
+		(_setMockProjectsDir as (dir: string) => void)(tempDir);
+		projectDir = join(tempDir, "-test-project");
+		await mkdir(projectDir, { recursive: true });
+	});
+
+	afterEach(async () => {
+		await rm(tempDir, { recursive: true, force: true });
+	});
+
+	it("returns empty array when no sessions exist", async () => {
+		const ids = await listLocalSessionIds("/test/project");
+		expect(ids).toEqual([]);
+	});
+
+	it("returns empty array when project directory does not exist", async () => {
+		const ids = await listLocalSessionIds("/nonexistent/project");
+		expect(ids).toEqual([]);
+	});
+
+	it("returns session IDs from JSONL files", async () => {
+		await writeFile(join(projectDir, "sess-001.jsonl"), "", "utf-8");
+		await writeFile(join(projectDir, "sess-002.jsonl"), "", "utf-8");
+		await writeFile(join(projectDir, "other.txt"), "", "utf-8");
+
+		const ids = await listLocalSessionIds("/test/project");
+		expect(ids.sort()).toEqual(["sess-001", "sess-002"]);
 	});
 });

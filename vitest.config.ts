@@ -10,6 +10,7 @@ export default defineConfig({
 				"src/commands/push.ts",
 				"src/commands/pull.ts",
 				"src/commands/status.ts",
+				"src/commands/setup.ts",
 			],
 		},
 	},

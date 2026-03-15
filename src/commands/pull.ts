@@ -1,4 +1,6 @@
 import { join } from "node:path";
+import { createInterface } from "node:readline/promises";
+import { listLocalSessionIds } from "../adapters/claude-code/reader.js";
 import { restoreProjectData } from "../adapters/claude-code/writer.js";
 import { getRepoDir } from "../core/config.js";
 import { pullRepo, repoExists } from "../core/git.js";
@@ -8,7 +10,7 @@ import { NoSessionsError } from "../errors.js";
 import { readCheckpoint } from "./checkpoint.js";
 import { ensureBatonRepo } from "./setup.js";
 
-export async function pull(): Promise<void> {
+export async function pull(options: { force?: boolean }): Promise<void> {
 	const cwd = process.cwd();
 
 	// 1. Detect project
@@ -38,13 +40,41 @@ export async function pull(): Promise<void> {
 		`Found ${data.sessions.length} session(s), ${data.memory.size} memory file(s)`,
 	);
 
-	// 4. Expand paths
+	// 4. Check for local sessions that would be overwritten
+	if (!options.force) {
+		const localIds = await listLocalSessionIds(cwd);
+		const remoteIds = new Set(data.sessions.map((s) => s.sessionId));
+		const conflicts = localIds.filter((id) => remoteIds.has(id));
+
+		if (conflicts.length > 0) {
+			console.log(
+				`Warning: ${conflicts.length} local session(s) will be overwritten.`,
+			);
+			const rl = createInterface({
+				input: process.stdin,
+				output: process.stdout,
+			});
+			try {
+				const answer = await rl.question("Continue? (y/N): ");
+				if (answer.trim().toLowerCase() !== "y") {
+					console.log(
+						"Pull cancelled. Use 'baton pull --force' to skip this check.",
+					);
+					return;
+				}
+			} finally {
+				rl.close();
+			}
+		}
+	}
+
+	// 5. Expand paths
 	const pathCtx = getLocalPathContext(cwd);
 	for (const session of data.sessions) {
 		session.jsonl = expandPaths(session.jsonl, pathCtx);
 	}
 
-	// 5. Restore to Claude Code's local storage
+	// 6. Restore to Claude Code's local storage
 	await restoreProjectData(cwd, data);
 
 	console.log("Pulled successfully. Sessions restored to Claude Code.");

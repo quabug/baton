@@ -16,6 +16,27 @@ export interface ProjectData {
 }
 
 /**
+ * List local session IDs for a project (lightweight, no content read).
+ */
+export async function listLocalSessionIds(
+	projectPath: string,
+): Promise<string[]> {
+	const projectDirName = encodeProjectDir(projectPath);
+	const projectDir = join(getClaudeProjectsDir(), projectDirName);
+
+	let entries: string[];
+	try {
+		entries = await readdir(projectDir);
+	} catch {
+		return [];
+	}
+
+	return entries
+		.filter((e) => e.endsWith(".jsonl"))
+		.map((e) => basename(e, ".jsonl"));
+}
+
+/**
  * Collect all session data for a project from Claude Code's local storage.
  */
 export async function collectProjectData(
