@@ -18,6 +18,8 @@ export interface ConflictContext {
 	localProjectDir: string;
 	remoteSessionsDir: string;
 	remoteMemoryDir: string;
+	/** ISO timestamp from meta.json pushed_at, used for remote file timestamps */
+	remotePushedAt?: string;
 }
 
 /**
@@ -40,6 +42,10 @@ export async function detectConflicts(
 	const remoteMemSet = new Set(remoteMemoryFiles);
 	const overlappingMemory = localMemoryFiles.filter((f) => remoteMemSet.has(f));
 
+	const remotePushedLabel = ctx.remotePushedAt
+		? formatRelativeTime(new Date(ctx.remotePushedAt))
+		: "unknown";
+
 	const sessions: FileConflict[] = [];
 	for (const id of overlappingSessionIds) {
 		const localPath = join(ctx.localProjectDir, `${id}.jsonl`);
@@ -50,7 +56,7 @@ export async function detectConflicts(
 				localPath,
 				remotePath,
 				localModified: await getModifiedTime(localPath),
-				remoteModified: await getModifiedTime(remotePath),
+				remoteModified: remotePushedLabel,
 			});
 		}
 	}
@@ -65,7 +71,7 @@ export async function detectConflicts(
 				localPath,
 				remotePath,
 				localModified: await getModifiedTime(localPath),
-				remoteModified: await getModifiedTime(remotePath),
+				remoteModified: remotePushedLabel,
 			});
 		}
 	}

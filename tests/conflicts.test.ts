@@ -94,7 +94,35 @@ describe("detectConflicts", () => {
 		expect(result.sessions[0].localPath).toContain("sess-001.jsonl");
 		expect(result.sessions[0].remotePath).toContain("sess-001.jsonl");
 		expect(result.sessions[0].localModified).toBeTruthy();
-		expect(result.sessions[0].remoteModified).toBeTruthy();
+		expect(result.sessions[0].remoteModified).toBe("unknown");
+	});
+
+	it("uses remotePushedAt for remote timestamps when provided", async () => {
+		await writeFile(
+			join(localDir, "sess-001.jsonl"),
+			"local content\n",
+			"utf-8",
+		);
+		await writeFile(
+			join(remoteSessionsDir, "sess-001.jsonl"),
+			"remote content\n",
+			"utf-8",
+		);
+
+		const ctxWithPushedAt = {
+			...ctx,
+			remotePushedAt: new Date(
+				Date.now() - 3_600_000 * 3,
+			).toISOString(),
+		};
+		const result = await detectConflicts(
+			["sess-001"],
+			["sess-001"],
+			[],
+			[],
+			ctxWithPushedAt,
+		);
+		expect(result.sessions[0].remoteModified).toBe("3 hour(s) ago");
 	});
 
 	it("detects memory conflict with paths and timestamps", async () => {
