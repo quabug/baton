@@ -68,7 +68,12 @@ async function autoDetectOrPrompt(): Promise<{ repo: string }> {
 		]);
 		console.log(`Found baton repo: ${defaultUrl}`);
 		return { repo: defaultUrl };
-	} catch {
+	} catch (error) {
+		// Re-throw if not a "repo not found" error (e.g., auth, network, gh not installed)
+		if (!isRepoNotFoundError(error)) {
+			throw error;
+		}
+
 		// Repo doesn't exist, prompt for URL
 		const rl = createInterface({
 			input: process.stdin,
@@ -87,4 +92,15 @@ async function autoDetectOrPrompt(): Promise<{ repo: string }> {
 			rl.close();
 		}
 	}
+}
+
+function isRepoNotFoundError(error: unknown): boolean {
+	if (!(error instanceof Error)) return false;
+	const stderr = (error as { stderr?: string }).stderr ?? "";
+	const message = error.message + stderr;
+	return (
+		message.includes("Could not resolve") ||
+		message.includes("HTTP 404") ||
+		message.includes("Not Found")
+	);
 }
