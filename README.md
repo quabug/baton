@@ -3,12 +3,11 @@
 ![Baton Banner](./.assets/banner.png)
 
 [![npm version](https://img.shields.io/npm/v/baton-cli.svg)](https://www.npmjs.com/package/baton-cli)
+[![CI](https://github.com/quabug/baton/actions/workflows/ci.yml/badge.svg)](https://github.com/quabug/baton/actions/workflows/ci.yml)
 
-**Baton** is a session handoff tool for Claude Code across machines.
+**Git-backed session handoff for Claude Code.**
 
-It solves one problem:
-
-> Can I continue the same Claude Code session on another machine without losing context?
+Continue the same coding session on another machine without losing context.
 
 ```bash
 baton push   # on machine A
@@ -17,101 +16,68 @@ baton pull   # on machine B
 
 ---
 
-## Why it exists
+## Why
 
-Claude Code sessions are trapped on one machine:
+CLI coding agent sessions are trapped on one machine:
 
-- session context doesn't travel between devices
-- macOS, Linux, and Windows use different paths, usernames, and home directories
-- the same repo often lives at different absolute paths on different machines
-- existing tools sync config, not coding sessions
+- Session context doesn't travel between devices
+- The same repo lives at different absolute paths on different machines
+- macOS, Linux, and Windows use different paths and home directories
+- Existing tools sync config, not coding sessions
 
-Baton does not try to replace the agent itself.
-
-It focuses on one job:
-
-**push a session here, pull it there, keep working.**
+Baton fixes this. Push your session, pull it elsewhere, keep working.
 
 ---
 
-## One-line positioning
-
-**Git-backed session handoff for Claude Code.**
-
----
-
-## Prerequisites
-
-- **Node.js**: v18 or newer.
-- **Git**: Your project must be a git repository with a configured remote origin.
-- **GitHub CLI (`gh`)**: Required for creating the private state repository on your first `baton push` (must be authenticated).
-
----
-
-## Installation
-
-Install Baton globally via npm:
+## Install
 
 ```bash
 npm install -g baton-cli
 ```
 
+**Requirements:** Node.js 18+, Git, [GitHub CLI](https://cli.github.com/) (authenticated)
+
+---
+
+## Quick start
+
+```bash
+# On machine A — push your sessions
+cd ~/work/my-project
+baton push
+
+# On machine B — pull and continue
+cd ~/projects/my-project
+baton pull
+```
+
+On first run, `baton push` creates a private GitHub repo (`baton-sessions` by default) to store your session data. On another machine, `baton pull` auto-detects this repo from your GitHub account.
+
 ---
 
 ## How it works
 
-1. You run `baton push` from a project directory
-2. Baton auto-detects the project from the git remote
-3. All Claude Code sessions for that project are captured
-4. Absolute paths are replaced with portable placeholders
-5. The checkpoint is pushed to a private GitHub repo
-6. On another machine, `baton pull` restores the sessions
-7. Placeholders are expanded to machine-local paths
-8. Claude Code can continue where you left off
-
----
-
-## Example
-
-Same repo, different machines:
-
-- macOS: `/Users/dr_who/work/foo`
-- Linux: `/root/projects/foo`
-- Windows: `C:\Users\dr_who\work\foo`
-
-Baton identifies them as the same project from the git remote:
-
-```bash
-# on macOS
-cd /Users/dr_who/work/foo
-baton push
-
-# on Linux
-cd /root/projects/foo
-baton pull
-```
-
-Path placeholders handle the differences automatically:
-
-| Placeholder | macOS | Linux | Windows |
-|-------------|-------|-------|---------|
-| `${PROJECT_ROOT}` | `/Users/dr_who/work/foo` | `/root/projects/foo` | `C:\Users\dr_who\work\foo` |
-| `${HOME}` | `/Users/dr_who` | `/root` | `C:\Users\dr_who` |
+1. **Auto-detect** the project from `git remote` in the current directory
+2. **Collect** all Claude Code sessions, tool results, and project memory
+3. **Virtualize** absolute paths into portable placeholders (`${PROJECT_ROOT}`, `${HOME}`, `${TMP}`)
+4. **Push** the checkpoint to your private GitHub repo
+5. On another machine, **pull** and expand placeholders to local paths
+6. Claude Code picks up the restored sessions automatically
 
 ---
 
 ## What gets synced
 
-| Component | Synced? | Why |
-|-----------|---------|-----|
-| Session conversation logs (all) | Yes | The sessions themselves |
+| Component | Synced | Why |
+|-----------|--------|-----|
+| Session conversation logs | Yes | All sessions for the project |
 | Tool results | Yes | Small, needed for reference integrity |
 | Project memory | Yes | Tiny, valuable for continuity |
 | Subagent logs | No | Too large, results already in main conversation |
 
 ---
 
-## CLI
+## CLI reference
 
 ```bash
 baton push              # push all sessions for this project
@@ -122,35 +88,50 @@ baton status            # show current project and sync state
 
 ---
 
-## What Baton is not
+## Cross-platform path handling
 
-Baton is **not**:
+Same repo, different machines:
 
-- a real-time sync engine
-- a multi-user collaboration platform
-- a vector database or semantic memory system
-- a config sync tool
-- a full native state restoration guarantee
+| Machine | Path |
+|---------|------|
+| macOS | `/Users/you/work/my-project` |
+| Linux | `/home/you/projects/my-project` |
+| Windows | `C:\Users\you\my-project` |
+
+Baton replaces absolute paths with portable placeholders on push and expands them to local paths on pull. Longest paths are replaced first to prevent partial matches.
+
+---
+
+## Conflict guard
+
+`baton push` checks if the remote has changes you haven't pulled. If so, it refuses to push to prevent accidental overwrites.
+
+```bash
+baton push          # refused — remote is ahead
+baton pull          # pull first
+baton push          # now it works
+
+baton push --force  # or override the check
+```
 
 ---
 
 ## Design principles
 
-* **Project-aware**: project identity comes from git remote, not local paths
-* **Checkpoint-first**: restore from snapshots, not fragile live mirroring
-* **Portable before native**: prioritize continuity over perfect internal restoration
-* **Git-backed**: use GitHub for durable history and recovery
-* **Simple**: two commands, no daemon, no config ceremony
+- **Project-aware**: identity comes from git remote, not local paths
+- **Checkpoint-first**: restore from snapshots, not fragile live mirroring
+- **Portable before native**: prioritize continuity over perfect restoration
+- **Git-backed**: GitHub for durable history and recovery
+- **Simple**: two commands, no daemon, no config ceremony
 
 ---
 
-## Status
+## What Baton is not
 
-Early design / MVP planning.
-
-v0.1 target:
-
-> Push/pull Claude Code sessions across macOS, Linux, and Windows for the same logical project.
+- A real-time sync engine
+- A multi-user collaboration platform
+- A semantic memory system
+- A config sync tool
 
 ---
 
