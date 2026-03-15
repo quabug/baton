@@ -95,6 +95,25 @@ describe("virtualizePaths", () => {
 		);
 	});
 
+	it("does not replace path that is a prefix of another word", () => {
+		const content = '{"path":"/home/dr_who_backup/config.json"}';
+		const result = virtualizePaths(content, linuxCtx);
+		// Should NOT replace /home/dr_who inside /home/dr_who_backup
+		expect(result).toBe('{"path":"/home/dr_who_backup/config.json"}');
+	});
+
+	it("replaces path followed by quote boundary", () => {
+		const content = '{"cwd":"/home/dr_who"}';
+		const result = virtualizePaths(content, linuxCtx);
+		expect(result).toBe('{"cwd":"${HOME}"}');
+	});
+
+	it("replaces path at end of string", () => {
+		const content = "cwd: /home/dr_who/baton";
+		const result = virtualizePaths(content, linuxCtx);
+		expect(result).toBe("cwd: ${PROJECT_ROOT}");
+	});
+
 	it("skips empty path values", () => {
 		const ctx = { projectRoot: "/test", home: "", tmp: "/tmp" };
 		const content = '{"path":"/test/file"}';

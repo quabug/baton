@@ -52,7 +52,7 @@ export function virtualizePaths(content: string, ctx: PathContext): string {
 	let result = normalizedContent;
 	for (const [path, placeholder] of replacements) {
 		if (path) {
-			result = replaceAll(result, path, placeholder);
+			result = replacePathWithBoundary(result, path, placeholder);
 		}
 	}
 
@@ -97,8 +97,30 @@ function toNativePath(path: string): string {
 }
 
 /**
- * Replace all occurrences of a substring (no regex needed).
+ * Replace all occurrences of a path, but only when followed by a path
+ * boundary character (/, \, ", whitespace, end of string, etc.).
+ * Prevents matching /home/dr_who inside /home/dr_who_backup.
+ */
+function replacePathWithBoundary(
+	str: string,
+	path: string,
+	replacement: string,
+): string {
+	const escaped = escapeRegex(path);
+	const regex = new RegExp(`${escaped}(?=[/\\\\"\\s,}\\]]|$)`, "g");
+	return str.replace(regex, replacement);
+}
+
+/**
+ * Replace all occurrences of a substring.
  */
 function replaceAll(str: string, search: string, replacement: string): string {
 	return str.split(search).join(replacement);
+}
+
+/**
+ * Escape special regex characters in a string.
+ */
+function escapeRegex(str: string): string {
+	return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
