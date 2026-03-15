@@ -1,5 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
 	encodeProjectDir,
 	getClaudeProjectsDir,
@@ -75,7 +75,7 @@ async function ensureProjectConfig(
 		config[projectDirName] = {
 			originalPath: projectPath,
 		};
-		await mkdir(join(getProjectConfigPath(), ".."), { recursive: true });
+		await mkdir(dirname(configPath), { recursive: true });
 		await writeFile(configPath, JSON.stringify(config, null, 2), "utf-8");
 	}
 }

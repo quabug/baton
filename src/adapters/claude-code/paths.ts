@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 /**
  * Encode a local project path into a Claude Code project directory name.
- * Claude Code replaces both `/` and `.` with `-`.
+ * Claude Code replaces `/`, `.`, and `:` with `-`.
  *
  * Examples:
  *   /home/dr_who/baton → -home-dr_who-baton
