@@ -70,7 +70,7 @@ describe("detectConflicts", () => {
 		expect(result.sessions).toEqual([]);
 	});
 
-	it("detects session conflict when content differs", async () => {
+	it("detects session conflict with paths and timestamps", async () => {
 		await writeFile(
 			join(localDir, "sess-001.jsonl"),
 			"local content\n",
@@ -89,10 +89,15 @@ describe("detectConflicts", () => {
 			[],
 			ctx,
 		);
-		expect(result.sessions).toEqual(["sess-001"]);
+		expect(result.sessions).toHaveLength(1);
+		expect(result.sessions[0].name).toBe("sess-001");
+		expect(result.sessions[0].localPath).toContain("sess-001.jsonl");
+		expect(result.sessions[0].remotePath).toContain("sess-001.jsonl");
+		expect(result.sessions[0].localModified).toBeTruthy();
+		expect(result.sessions[0].remoteModified).toBeTruthy();
 	});
 
-	it("detects memory conflict when content differs", async () => {
+	it("detects memory conflict with paths and timestamps", async () => {
 		await writeFile(
 			join(localDir, "memory", "MEMORY.md"),
 			"local notes\n",
@@ -111,7 +116,10 @@ describe("detectConflicts", () => {
 			["MEMORY.md"],
 			ctx,
 		);
-		expect(result.memoryFiles).toEqual(["MEMORY.md"]);
+		expect(result.memoryFiles).toHaveLength(1);
+		expect(result.memoryFiles[0].name).toBe("MEMORY.md");
+		expect(result.memoryFiles[0].localPath).toContain("memory/MEMORY.md");
+		expect(result.memoryFiles[0].remotePath).toContain("MEMORY.md");
 	});
 
 	it("returns no memory conflict when content is same", async () => {
@@ -137,7 +145,6 @@ describe("detectConflicts", () => {
 	});
 
 	it("handles mix of conflicting and non-conflicting files", async () => {
-		// sess-001: same content (no conflict)
 		await writeFile(
 			join(localDir, "sess-001.jsonl"),
 			"same\n",
@@ -148,7 +155,6 @@ describe("detectConflicts", () => {
 			"same\n",
 			"utf-8",
 		);
-		// sess-002: different content (conflict)
 		await writeFile(
 			join(localDir, "sess-002.jsonl"),
 			"local\n",
@@ -167,11 +173,11 @@ describe("detectConflicts", () => {
 			[],
 			ctx,
 		);
-		expect(result.sessions).toEqual(["sess-002"]);
+		expect(result.sessions).toHaveLength(1);
+		expect(result.sessions[0].name).toBe("sess-002");
 	});
 
 	it("treats missing local file as no conflict", async () => {
-		// Only remote exists
 		await writeFile(
 			join(remoteSessionsDir, "sess-001.jsonl"),
 			"remote\n",
@@ -185,7 +191,6 @@ describe("detectConflicts", () => {
 			[],
 			ctx,
 		);
-		// File can't be read locally, so contentDiffers returns false
 		expect(result.sessions).toEqual([]);
 	});
 });
@@ -196,101 +201,150 @@ describe("hasConflicts", () => {
 	});
 
 	it("returns true when session conflicts exist", () => {
-		expect(
-			hasConflicts({ sessions: ["sess-001"], memoryFiles: [] }),
-		).toBe(true);
+		const conflict = {
+			name: "s1",
+			localPath: "",
+			remotePath: "",
+			localModified: "",
+			remoteModified: "",
+		};
+		expect(hasConflicts({ sessions: [conflict], memoryFiles: [] })).toBe(
+			true,
+		);
 	});
 
 	it("returns true when memory conflicts exist", () => {
-		expect(
-			hasConflicts({ sessions: [], memoryFiles: ["MEMORY.md"] }),
-		).toBe(true);
+		const conflict = {
+			name: "MEMORY.md",
+			localPath: "",
+			remotePath: "",
+			localModified: "",
+			remoteModified: "",
+		};
+		expect(hasConflicts({ sessions: [], memoryFiles: [conflict] })).toBe(
+			true,
+		);
 	});
 });
 
 describe("formatConflictMessage", () => {
-	const testCtx: ConflictContext = {
-		localProjectDir: "/home/user/.claude/projects/-home-user-myproject",
-		remoteSessionsDir: "/home/user/.baton/repo/projects/abc123/sessions",
-		remoteMemoryDir: "/home/user/.baton/repo/projects/abc123/memory",
-	};
-
-	it("includes session conflicts with local and remote paths", () => {
-		const msg = formatConflictMessage(
-			{ sessions: ["sess-001"], memoryFiles: [] },
-			testCtx,
-		);
+	it("includes session conflicts with timestamps", () => {
+		const msg = formatConflictMessage({
+			sessions: [
+				{
+					name: "sess-001",
+					localPath: "/local/sess-001.jsonl",
+					remotePath: "/remote/sess-001.jsonl",
+					localModified: "2 hour(s) ago",
+					remoteModified: "5 hour(s) ago",
+				},
+			],
+			memoryFiles: [],
+		});
 		expect(msg).toContain("Conflicting sessions (1)");
 		expect(msg).toContain("sess-001");
 		expect(msg).toContain("local:");
+		expect(msg).toContain("2 hour(s) ago");
 		expect(msg).toContain("remote:");
-		expect(msg).toContain("sess-001.jsonl");
+		expect(msg).toContain("5 hour(s) ago");
+	});
+
+	it("includes resolution options for user", () => {
+		const msg = formatConflictMessage({
+			sessions: [
+				{
+					name: "s1",
+					localPath: "",
+					remotePath: "",
+					localModified: "",
+					remoteModified: "",
+				},
+			],
+			memoryFiles: [],
+		});
+		expect(msg).toContain("1. Overwrite local with remote");
+		expect(msg).toContain("2. Keep local, skip remote");
 		expect(msg).toContain("--force");
 		expect(msg).toContain("--skip");
 	});
 
-	it("includes session agent-hint with resolution options", () => {
-		const msg = formatConflictMessage(
-			{ sessions: ["sess-001"], memoryFiles: [] },
-			testCtx,
-		);
-		expect(msg).toContain("<agent-hint>");
-		expect(msg).toContain("cannot be meaningfully merged");
-		expect(msg).toContain("</agent-hint>");
+	it("includes merge option when memory files conflict", () => {
+		const msg = formatConflictMessage({
+			sessions: [],
+			memoryFiles: [
+				{
+					name: "MEMORY.md",
+					localPath: "/local/memory/MEMORY.md",
+					remotePath: "/remote/memory/MEMORY.md",
+					localModified: "1 hour(s) ago",
+					remoteModified: "3 hour(s) ago",
+				},
+			],
+		});
+		expect(msg).toContain("3. Merge memory files");
 	});
 
-	it("includes memory conflicts with local and remote paths", () => {
-		const msg = formatConflictMessage(
-			{ sessions: [], memoryFiles: ["MEMORY.md"] },
-			testCtx,
-		);
-		expect(msg).toContain("Conflicting memory files (1)");
-		expect(msg).toContain("MEMORY.md");
-		expect(msg).toContain("local:");
-		expect(msg).toContain(
-			"/home/user/.claude/projects/-home-user-myproject/memory/MEMORY.md",
-		);
-		expect(msg).toContain(
-			"/home/user/.baton/repo/projects/abc123/memory/MEMORY.md",
-		);
-	});
-
-	it("includes memory agent-hint with merge instructions", () => {
-		const msg = formatConflictMessage(
-			{ sessions: [], memoryFiles: ["MEMORY.md"] },
-			testCtx,
-		);
+	it("includes agent-hint with step-by-step instructions", () => {
+		const msg = formatConflictMessage({
+			sessions: [
+				{
+					name: "s1",
+					localPath: "",
+					remotePath: "",
+					localModified: "",
+					remoteModified: "",
+				},
+			],
+			memoryFiles: [
+				{
+					name: "MEMORY.md",
+					localPath: "/local/MEMORY.md",
+					remotePath: "/remote/MEMORY.md",
+					localModified: "",
+					remoteModified: "",
+				},
+			],
+		});
 		expect(msg).toContain("<agent-hint>");
-		expect(msg).toContain("read both the local and remote");
-		expect(msg).toContain("deduplicate entries");
-		expect(msg).toContain("write the merged result to the");
+		expect(msg).toContain("Ask the user which option they prefer");
 		expect(msg).toContain("baton pull --force");
+		expect(msg).toContain("baton pull --skip");
+		expect(msg).toContain("baton push");
+		expect(msg).toContain("merge their content");
 		expect(msg).toContain("</agent-hint>");
 	});
 
-	it("includes both session and memory conflicts", () => {
-		const msg = formatConflictMessage(
-			{ sessions: ["s1", "s2"], memoryFiles: ["MEMORY.md"] },
-			testCtx,
-		);
-		expect(msg).toContain("Conflicting sessions (2)");
-		expect(msg).toContain("Conflicting memory files (1)");
-		// Should have both agent-hints
-		const hints = msg.match(/<agent-hint>/g);
-		expect(hints).toHaveLength(2);
+	it("agent-hint for sessions only mentions force/skip", () => {
+		const msg = formatConflictMessage({
+			sessions: [
+				{
+					name: "s1",
+					localPath: "",
+					remotePath: "",
+					localModified: "",
+					remoteModified: "",
+				},
+			],
+			memoryFiles: [],
+		});
+		expect(msg).toContain("cannot be merged");
+		expect(msg).not.toContain("merge their content");
 	});
 
-	it("does not include agent-hint when no conflicts of that type", () => {
-		const sessOnly = formatConflictMessage(
-			{ sessions: ["s1"], memoryFiles: [] },
-			testCtx,
-		);
-		expect(sessOnly).not.toContain("read both the local and remote");
-
-		const memOnly = formatConflictMessage(
-			{ sessions: [], memoryFiles: ["MEMORY.md"] },
-			testCtx,
-		);
-		expect(memOnly).not.toContain("cannot be meaningfully merged");
+	it("agent-hint for memory only mentions merge option", () => {
+		const msg = formatConflictMessage({
+			sessions: [],
+			memoryFiles: [
+				{
+					name: "MEMORY.md",
+					localPath: "",
+					remotePath: "",
+					localModified: "",
+					remoteModified: "",
+				},
+			],
+		});
+		expect(msg).toContain("merge their content");
+		expect(msg).not.toContain("cannot be merged");
 	});
 });
