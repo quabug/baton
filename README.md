@@ -1,5 +1,3 @@
-# Baton
-
 ![Baton Banner](./.assets/banner.png)
 
 [![npm version](https://img.shields.io/npm/v/baton-cli.svg)](https://www.npmjs.com/package/baton-cli)
