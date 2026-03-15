@@ -1,5 +1,7 @@
 # Baton
 
+![Baton Banner](./assets/banner.png)
+
 **Baton** is a session handoff tool for Claude Code across machines.
 
 It solves one problem:
