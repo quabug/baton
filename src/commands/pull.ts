@@ -8,6 +8,7 @@ import {
 	listLocalMemoryFiles,
 	listLocalSessionIds,
 } from "../adapters/claude-code/reader.js";
+import { findActiveSessionId } from "../adapters/claude-code/session.js";
 import { restoreProjectData } from "../adapters/claude-code/writer.js";
 import { getRepoDir } from "../core/config.js";
 import {
@@ -112,5 +113,20 @@ export async function pull(options: {
 		console.log(`Pulled successfully. Skipped ${skipped} conflicting file(s).`);
 	} else {
 		console.log("Pulled successfully. Sessions restored to Claude Code.");
+	}
+
+	// 7. Check if the active Claude Code session was modified
+	const activeSessionId = await findActiveSessionId(cwd);
+	if (activeSessionId) {
+		const pulledIds = new Set(data.sessions.map((s) => s.sessionId));
+		const wasSkipped = skipSessions?.has(activeSessionId);
+		if (pulledIds.has(activeSessionId) && !wasSkipped) {
+			console.log("");
+			console.log("<agent-hint>");
+			console.log("The active Claude Code session was updated by this pull.");
+			console.log("The in-memory conversation context is now stale.");
+			console.log("Run /resume to reload the session with the pulled context.");
+			console.log("</agent-hint>");
+		}
 	}
 }
