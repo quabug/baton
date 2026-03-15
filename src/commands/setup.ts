@@ -1,30 +1,26 @@
 import { createInterface } from "node:readline/promises";
 import { getRepoDir, loadConfig, saveConfig } from "../core/config.js";
-import { cloneRepo, createGhRepo, repoExists } from "../core/git.js";
+import { cloneRepo, createGhRepo, gh, repoExists } from "../core/git.js";
+
+const DEFAULT_REPO_NAME = "baton-sessions";
 
 /**
  * Ensure the baton repo is configured and cloned locally.
- * On first run, prompts the user to either create a new repo (push) or enter an existing repo URL (pull).
+ * On first run:
+ *   - push: auto-creates a private "baton-sessions" repo
+ *   - pull: tries the current user's "baton-sessions" repo, prompts if not found
  */
 export async function ensureBatonRepo(mode: "push" | "pull"): Promise<void> {
 	const repoDir = getRepoDir();
 	let config = await loadConfig();
 
 	if (!config) {
-		const rl = createInterface({
-			input: process.stdin,
-			output: process.stdout,
-		});
-		try {
-			if (mode === "push") {
-				config = await promptCreateRepo(rl);
-			} else {
-				config = await promptExistingRepo(rl);
-			}
-			await saveConfig(config);
-		} finally {
-			rl.close();
+		if (mode === "push") {
+			config = await promptCreateRepo();
+		} else {
+			config = await autoDetectOrPrompt();
 		}
+		await saveConfig(config);
 	}
 
 	if (!(await repoExists(repoDir))) {
@@ -33,33 +29,78 @@ export async function ensureBatonRepo(mode: "push" | "pull"): Promise<void> {
 	}
 }
 
-async function promptCreateRepo(
-	rl: ReturnType<typeof createInterface>,
-): Promise<{ repo: string }> {
-	const rawName = await rl.question(
-		"Enter a name for your baton sync repo (will be created as private on GitHub): ",
-	);
-	const repoName = rawName.trim();
-	if (!repoName) {
-		throw new Error("Repo name cannot be empty.");
-	}
-
-	console.log(`Creating private repo '${repoName}'...`);
-	const repoUrl = await createGhRepo(repoName);
-	console.log(`Repo created: ${repoUrl}`);
-	return { repo: repoUrl };
+async function getGitHubUsername(): Promise<string> {
+	return await gh(["api", "user", "--jq", ".login"]);
 }
 
-async function promptExistingRepo(
-	rl: ReturnType<typeof createInterface>,
-): Promise<{ repo: string }> {
-	const rawUrl = await rl.question(
-		"Enter your baton sync repo URL (e.g. https://github.com/user/baton-sync): ",
-	);
-	const repoUrl = rawUrl.trim();
-	if (!repoUrl) {
-		throw new Error("Repo URL cannot be empty.");
+async function promptCreateRepo(): Promise<{ repo: string }> {
+	const rl = createInterface({
+		input: process.stdin,
+		output: process.stdout,
+	});
+	try {
+		const rawName = await rl.question(
+			`Enter repo name for baton sync (${DEFAULT_REPO_NAME}): `,
+		);
+		const repoName = rawName.trim() || DEFAULT_REPO_NAME;
+		console.log(`Creating private repo '${repoName}'...`);
+		const repoUrl = await createGhRepo(repoName);
+		console.log(`Repo created: ${repoUrl}`);
+		return { repo: repoUrl };
+	} finally {
+		rl.close();
 	}
+}
 
-	return { repo: repoUrl };
+async function autoDetectOrPrompt(): Promise<{ repo: string }> {
+	// Try the current user's default repo name first
+	const username = await getGitHubUsername();
+	const defaultUrl = `https://github.com/${username}/${DEFAULT_REPO_NAME}`;
+
+	try {
+		// Check if the repo exists
+		await gh([
+			"repo",
+			"view",
+			`${username}/${DEFAULT_REPO_NAME}`,
+			"--json",
+			"name",
+		]);
+		console.log(`Found baton repo: ${defaultUrl}`);
+		return { repo: defaultUrl };
+	} catch (error) {
+		// Re-throw if not a "repo not found" error (e.g., auth, network, gh not installed)
+		if (!isRepoNotFoundError(error)) {
+			throw error;
+		}
+
+		// Repo doesn't exist, prompt for URL
+		const rl = createInterface({
+			input: process.stdin,
+			output: process.stdout,
+		});
+		try {
+			const rawUrl = await rl.question(
+				`No '${DEFAULT_REPO_NAME}' repo found for ${username}. Enter your baton repo URL: `,
+			);
+			const repoUrl = rawUrl.trim();
+			if (!repoUrl) {
+				throw new Error("Repo URL cannot be empty.");
+			}
+			return { repo: repoUrl };
+		} finally {
+			rl.close();
+		}
+	}
+}
+
+function isRepoNotFoundError(error: unknown): boolean {
+	if (!(error instanceof Error)) return false;
+	const stderr = (error as { stderr?: string }).stderr ?? "";
+	const message = error.message + stderr;
+	return (
+		message.includes("Could not resolve") ||
+		message.includes("HTTP 404") ||
+		message.includes("Not Found")
+	);
 }
