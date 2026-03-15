@@ -1,18 +1,12 @@
 import { join } from "node:path";
-import { createInterface } from "node:readline/promises";
 import { collectProjectData } from "../adapters/claude-code/reader.js";
-import { getRepoDir, loadConfig, saveConfig } from "../core/config.js";
-import {
-	cloneRepo,
-	commitAndPush,
-	createGhRepo,
-	isRemoteAhead,
-	repoExists,
-} from "../core/git.js";
+import { getRepoDir } from "../core/config.js";
+import { commitAndPush, isRemoteAhead, repoExists } from "../core/git.js";
 import { getLocalPathContext, virtualizePaths } from "../core/paths.js";
 import { detectProject } from "../core/project.js";
 import { ConflictError } from "../errors.js";
 import { writeCheckpoint } from "./checkpoint.js";
+import { ensureBatonRepo } from "./setup.js";
 
 export async function push(options: { force?: boolean }): Promise<void> {
 	const cwd = process.cwd();
@@ -35,7 +29,7 @@ export async function push(options: { force?: boolean }): Promise<void> {
 
 	// 4. Ensure baton repo exists
 	const repoDir = getRepoDir();
-	await ensureBatonRepo(repoDir);
+	await ensureBatonRepo("push");
 
 	// 5. Conflict check
 	if (!options.force && (await repoExists(repoDir))) {
@@ -64,38 +58,4 @@ export async function push(options: { force?: boolean }): Promise<void> {
 	);
 
 	console.log("Pushed successfully.");
-}
-
-async function ensureBatonRepo(repoDir: string): Promise<void> {
-	let config = await loadConfig();
-
-	if (!config) {
-		// First-time setup: prompt for repo name
-		const rl = createInterface({
-			input: process.stdin,
-			output: process.stdout,
-		});
-		try {
-			const rawName = await rl.question(
-				"Enter a name for your baton sync repo (will be created as private on GitHub): ",
-			);
-			const repoName = rawName.trim();
-			if (!repoName) {
-				throw new Error("Repo name cannot be empty.");
-			}
-
-			console.log(`Creating private repo '${repoName}'...`);
-			const repoUrl = await createGhRepo(repoName);
-			config = { repo: repoUrl };
-			await saveConfig(config);
-			console.log(`Repo created: ${repoUrl}`);
-		} finally {
-			rl.close();
-		}
-	}
-
-	if (!(await repoExists(repoDir))) {
-		console.log("Cloning baton repo...");
-		await cloneRepo(config.repo, repoDir);
-	}
 }

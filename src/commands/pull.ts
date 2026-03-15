@@ -1,11 +1,12 @@
 import { join } from "node:path";
 import { restoreProjectData } from "../adapters/claude-code/writer.js";
-import { getRepoDir, loadConfig } from "../core/config.js";
-import { cloneRepo, pullRepo, repoExists } from "../core/git.js";
+import { getRepoDir } from "../core/config.js";
+import { pullRepo, repoExists } from "../core/git.js";
 import { expandPaths, getLocalPathContext } from "../core/paths.js";
 import { detectProject } from "../core/project.js";
-import { ConfigError, NoSessionsError } from "../errors.js";
+import { NoSessionsError } from "../errors.js";
 import { readCheckpoint } from "./checkpoint.js";
+import { ensureBatonRepo } from "./setup.js";
 
 export async function pull(): Promise<void> {
 	const cwd = process.cwd();
@@ -15,18 +16,10 @@ export async function pull(): Promise<void> {
 	console.log(`Project: ${project.normalizedRemote} (${project.projectId})`);
 
 	// 2. Ensure baton repo is available
-	const config = await loadConfig();
-	if (!config) {
-		throw new ConfigError(
-			"Baton is not configured. Run 'baton push' first to set up the sync repo.",
-		);
-	}
+	await ensureBatonRepo("pull");
 
 	const repoDir = getRepoDir();
-	if (!(await repoExists(repoDir))) {
-		console.log("Cloning baton repo...");
-		await cloneRepo(config.repo, repoDir);
-	} else {
+	if (await repoExists(repoDir)) {
 		console.log("Pulling latest...");
 		await pullRepo(repoDir);
 	}
