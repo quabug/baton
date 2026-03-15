@@ -24,9 +24,10 @@ program
 program
 	.command("pull")
 	.description("Restore sessions for the current project from GitHub")
-	.option("-f, --force", "Overwrite local sessions without confirmation")
+	.option("-f, --force", "Overwrite all local with remote")
+	.option("-s, --skip", "Only pull non-conflicting files")
 	.action(async (options) => {
-		await pull({ force: options.force });
+		await pull({ force: options.force, skip: options.skip });
 	});
 
 program

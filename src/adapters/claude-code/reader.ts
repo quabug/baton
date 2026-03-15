@@ -37,6 +37,25 @@ export async function listLocalSessionIds(
 }
 
 /**
+ * List local memory file names for a project (lightweight, no content read).
+ */
+export async function listLocalMemoryFiles(
+	projectPath: string,
+): Promise<string[]> {
+	const projectDirName = encodeProjectDir(projectPath);
+	const memoryDir = join(getClaudeProjectsDir(), projectDirName, "memory");
+
+	let entries: string[];
+	try {
+		entries = await readdir(memoryDir);
+	} catch {
+		return [];
+	}
+
+	return entries;
+}
+
+/**
  * Collect all session data for a project from Claude Code's local storage.
  */
 export async function collectProjectData(

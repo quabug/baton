@@ -14,11 +14,11 @@ vi.mock("node:os", async (importOriginal) => {
 	};
 });
 
-const { listLocalSessionIds } = await import(
+const { listLocalSessionIds, listLocalMemoryFiles } = await import(
 	"../src/adapters/claude-code/reader.js"
 );
 
-describe("pull conflict detection", () => {
+describe("listLocalSessionIds", () => {
 	let tempDir: string;
 
 	beforeEach(async () => {
@@ -30,8 +30,7 @@ describe("pull conflict detection", () => {
 		await rm(tempDir, { recursive: true, force: true });
 	});
 
-	it("detects conflicting session IDs between local and remote", async () => {
-		// Create local sessions
+	it("returns session IDs from JSONL files", async () => {
 		const projectDir = join(
 			tempDir,
 			".claude",
@@ -42,38 +41,46 @@ describe("pull conflict detection", () => {
 		await writeFile(join(projectDir, "sess-001.jsonl"), "local\n", "utf-8");
 		await writeFile(join(projectDir, "sess-002.jsonl"), "local\n", "utf-8");
 
-		const localIds = await listLocalSessionIds("/test/project");
-
-		// Simulate remote sessions
-		const remoteIds = new Set(["sess-001", "sess-003"]);
-		const conflicts = localIds.filter((id) => remoteIds.has(id));
-
-		// sess-001 exists locally and remotely = conflict
-		expect(conflicts).toEqual(["sess-001"]);
+		const ids = await listLocalSessionIds("/test/project");
+		expect(ids.sort()).toEqual(["sess-001", "sess-002"]);
 	});
 
-	it("returns no conflicts when sessions don't overlap", async () => {
-		const projectDir = join(
+	it("returns empty array when no sessions exist", async () => {
+		const ids = await listLocalSessionIds("/test/project");
+		expect(ids).toEqual([]);
+	});
+});
+
+describe("listLocalMemoryFiles", () => {
+	let tempDir: string;
+
+	beforeEach(async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "baton-pull-conflict-"));
+		mockHome = tempDir;
+	});
+
+	afterEach(async () => {
+		await rm(tempDir, { recursive: true, force: true });
+	});
+
+	it("returns memory file names", async () => {
+		const memoryDir = join(
 			tempDir,
 			".claude",
 			"projects",
 			"-test-project",
+			"memory",
 		);
-		await mkdir(projectDir, { recursive: true });
-		await writeFile(join(projectDir, "sess-001.jsonl"), "local\n", "utf-8");
+		await mkdir(memoryDir, { recursive: true });
+		await writeFile(join(memoryDir, "MEMORY.md"), "notes", "utf-8");
+		await writeFile(join(memoryDir, "debug.md"), "debug", "utf-8");
 
-		const localIds = await listLocalSessionIds("/test/project");
-		const remoteIds = new Set(["sess-002", "sess-003"]);
-		const conflicts = localIds.filter((id) => remoteIds.has(id));
-
-		expect(conflicts).toEqual([]);
+		const files = await listLocalMemoryFiles("/test/project");
+		expect(files.sort()).toEqual(["MEMORY.md", "debug.md"]);
 	});
 
-	it("returns no conflicts when no local sessions exist", async () => {
-		const localIds = await listLocalSessionIds("/test/project");
-		const remoteIds = new Set(["sess-001"]);
-		const conflicts = localIds.filter((id) => remoteIds.has(id));
-
-		expect(conflicts).toEqual([]);
+	it("returns empty array when no memory directory exists", async () => {
+		const files = await listLocalMemoryFiles("/test/project");
+		expect(files).toEqual([]);
 	});
 });
