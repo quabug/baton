@@ -1,7 +1,19 @@
 import { join } from "node:path";
-import { listLocalSessionIds } from "../adapters/claude-code/reader.js";
+import {
+	encodeProjectDir,
+	getClaudeProjectsDir,
+} from "../adapters/claude-code/paths.js";
+import {
+	listLocalMemoryFiles,
+	listLocalSessionIds,
+} from "../adapters/claude-code/reader.js";
 import { restoreProjectData } from "../adapters/claude-code/writer.js";
 import { getRepoDir } from "../core/config.js";
+import {
+	detectConflicts,
+	formatConflictMessage,
+	hasConflicts,
+} from "../core/conflicts.js";
 import { pullRepo, repoExists } from "../core/git.js";
 import { expandPaths, getLocalPathContext } from "../core/paths.js";
 import { detectProject } from "../core/project.js";
@@ -9,7 +21,10 @@ import { ConflictError, NoSessionsError } from "../errors.js";
 import { readCheckpoint } from "./checkpoint.js";
 import { ensureBatonRepo } from "./setup.js";
 
-export async function pull(options: { force?: boolean }): Promise<void> {
+export async function pull(options: {
+	force?: boolean;
+	skip?: boolean;
+}): Promise<void> {
 	const cwd = process.cwd();
 
 	// 1. Detect project
@@ -39,27 +54,47 @@ export async function pull(options: { force?: boolean }): Promise<void> {
 		`Found ${data.sessions.length} session(s), ${data.memory.size} memory file(s)`,
 	);
 
-	// 4. Check for local sessions that would be overwritten
-	if (!options.force) {
-		const localIds = await listLocalSessionIds(cwd);
-		const remoteIds = new Set(data.sessions.map((s) => s.sessionId));
-		const conflicts = localIds.filter((id) => remoteIds.has(id));
-
-		if (conflicts.length > 0) {
-			throw new ConflictError(
-				`${conflicts.length} local session(s) would be overwritten. Use 'baton pull --force' to proceed.`,
-			);
-		}
-	}
-
-	// 5. Expand paths
+	// 4. Expand paths before conflict detection (so content comparison is meaningful)
 	const pathCtx = getLocalPathContext(cwd);
 	for (const session of data.sessions) {
 		session.jsonl = expandPaths(session.jsonl, pathCtx);
 	}
 
-	// 6. Restore to Claude Code's local storage
-	await restoreProjectData(cwd, data);
+	// 5. Detect content-based conflicts
+	const localProjectDir = join(getClaudeProjectsDir(), encodeProjectDir(cwd));
+	const remoteSessionsDir = join(projectDir, "sessions");
+	const remoteMemoryDir = join(projectDir, "memory");
 
-	console.log("Pulled successfully. Sessions restored to Claude Code.");
+	const localSessionIds = await listLocalSessionIds(cwd);
+	const localMemoryFiles = await listLocalMemoryFiles(cwd);
+	const remoteSessionIds = data.sessions.map((s) => s.sessionId);
+	const remoteMemoryFiles = [...data.memory.keys()];
+
+	const conflicts = await detectConflicts(
+		localSessionIds,
+		remoteSessionIds,
+		localMemoryFiles,
+		remoteMemoryFiles,
+		{ localProjectDir, remoteSessionsDir, remoteMemoryDir },
+	);
+
+	if (hasConflicts(conflicts) && !options.force && !options.skip) {
+		throw new ConflictError(formatConflictMessage(conflicts, remoteMemoryDir));
+	}
+
+	// 6. Restore to Claude Code's local storage
+	const skipSessions = options.skip ? new Set(conflicts.sessions) : undefined;
+	const skipMemory = options.skip ? new Set(conflicts.memoryFiles) : undefined;
+
+	await restoreProjectData(cwd, data, {
+		skipSessions,
+		skipMemory,
+	});
+
+	if (options.skip && hasConflicts(conflicts)) {
+		const skipped = conflicts.sessions.length + conflicts.memoryFiles.length;
+		console.log(`Pulled successfully. Skipped ${skipped} conflicting file(s).`);
+	} else {
+		console.log("Pulled successfully. Sessions restored to Claude Code.");
+	}
 }

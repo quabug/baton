@@ -7,19 +7,32 @@ import {
 } from "./paths.js";
 import type { ProjectData } from "./reader.js";
 
+export interface RestoreOptions {
+	/** Session IDs to skip (don't overwrite) */
+	skipSessions?: Set<string>;
+	/** Memory file names to skip (don't overwrite) */
+	skipMemory?: Set<string>;
+}
+
 /**
  * Restore project data to Claude Code's local storage.
  */
 export async function restoreProjectData(
 	projectPath: string,
 	data: ProjectData,
+	options?: RestoreOptions,
 ): Promise<void> {
 	const projectDirName = encodeProjectDir(projectPath);
 	const projectDir = join(getClaudeProjectsDir(), projectDirName);
 
 	await mkdir(projectDir, { recursive: true });
 
+	const skipSessions = options?.skipSessions ?? new Set();
+	const skipMemory = options?.skipMemory ?? new Set();
+
 	for (const session of data.sessions) {
+		if (skipSessions.has(session.sessionId)) continue;
+
 		// Write session JSONL
 		await writeFile(
 			join(projectDir, `${session.sessionId}.jsonl`),
@@ -46,6 +59,7 @@ export async function restoreProjectData(
 		const memoryDir = join(projectDir, "memory");
 		await mkdir(memoryDir, { recursive: true });
 		for (const [filename, content] of data.memory) {
+			if (skipMemory.has(filename)) continue;
 			await writeFile(join(memoryDir, filename), content, "utf-8");
 		}
 	}
