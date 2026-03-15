@@ -141,46 +141,55 @@ export function formatConflictMessage(conflicts: ConflictInfo): string {
 		lines.push("");
 	}
 
-	lines.push("Choose how to resolve:");
-	lines.push("  1. Overwrite local with remote (lose local changes)");
-	lines.push(
-		"  2. Keep local, skip remote (local will overwrite remote on next push)",
-	);
+	if (conflicts.sessions.length > 0) {
+		lines.push("Choose how to resolve sessions:");
+		lines.push("  1. Overwrite local with remote (lose local changes)");
+		lines.push(
+			"  2. Keep local, skip remote (local will overwrite remote on next push)",
+		);
+		lines.push("");
+	}
+
 	if (conflicts.memoryFiles.length > 0) {
 		lines.push(
-			"  3. Merge memory files (agent reads both versions and combines them)",
+			"Warning: options 1 and 2 will lose memory file content from one side.",
 		);
+		lines.push(
+			"Use an AI coding agent (e.g. Claude Code) to merge memory files automatically.",
+		);
+		lines.push("");
 	}
-	lines.push("");
 
-	lines.push("Or use flags directly:");
-	lines.push(
-		"  baton pull --force    option 1: overwrite all local with remote",
-	);
-	lines.push(
-		"  baton pull --skip     option 2: only pull non-conflicting files",
-	);
+	lines.push("Flags:");
+	lines.push("  baton pull --force    overwrite all local with remote");
+	lines.push("  baton pull --skip     only pull non-conflicting files");
 
 	lines.push("");
 	lines.push("<agent-hint>");
-	lines.push("Ask the user which option they prefer. Then follow through:");
-	lines.push("");
-	if (conflicts.sessions.length > 0) {
-		lines.push("For sessions (cannot be merged — pick one version):");
-		lines.push("  Option 1: run `baton pull --force`, then `baton push`");
-		lines.push("  Option 2: run `baton pull --skip`, then `baton push`");
-		lines.push("");
-	}
+
 	if (conflicts.memoryFiles.length > 0) {
-		lines.push("For memory files (can be merged):");
-		lines.push("  Option 1: run `baton pull --force`, then `baton push`");
-		lines.push("  Option 2: run `baton pull --skip`, then `baton push`");
-		lines.push("  Option 3: read both local and remote files listed above,");
-		lines.push("    merge their content (deduplicate, keep most recent info),");
-		lines.push("    write merged result to local path,");
-		lines.push("    then run `baton pull --skip` and `baton push`");
+		lines.push(
+			"ALWAYS merge memory files before asking the user about sessions.",
+		);
+		lines.push("Steps:");
+		lines.push("  1. Read both local and remote memory files listed above");
+		lines.push(
+			"  2. Merge their content (deduplicate entries, keep most recent info)",
+		);
+		lines.push("  3. Write the merged result to the local path");
 		lines.push("");
 	}
+
+	if (conflicts.sessions.length > 0) {
+		lines.push("Then ask the user which option they prefer for sessions:");
+		lines.push("  Option 1: run `baton pull --force`, then `baton push`");
+		lines.push("  Option 2: run `baton pull --skip`, then `baton push`");
+	} else {
+		lines.push(
+			"After merging memory, run `baton pull --skip` then `baton push`",
+		);
+	}
+
 	lines.push("</agent-hint>");
 
 	return lines.join("\n");

@@ -256,38 +256,28 @@ describe("hasConflicts", () => {
 });
 
 describe("formatConflictMessage", () => {
+	const makeConflict = (name: string) => ({
+		name,
+		localPath: `/local/${name}`,
+		remotePath: `/remote/${name}`,
+		localModified: "2 hour(s) ago",
+		remoteModified: "5 hour(s) ago",
+	});
+
 	it("includes session conflicts with timestamps", () => {
 		const msg = formatConflictMessage({
-			sessions: [
-				{
-					name: "sess-001",
-					localPath: "/local/sess-001.jsonl",
-					remotePath: "/remote/sess-001.jsonl",
-					localModified: "2 hour(s) ago",
-					remoteModified: "5 hour(s) ago",
-				},
-			],
+			sessions: [makeConflict("sess-001")],
 			memoryFiles: [],
 		});
 		expect(msg).toContain("Conflicting sessions (1)");
 		expect(msg).toContain("sess-001");
-		expect(msg).toContain("local:");
 		expect(msg).toContain("2 hour(s) ago");
-		expect(msg).toContain("remote:");
 		expect(msg).toContain("5 hour(s) ago");
 	});
 
-	it("includes resolution options for user", () => {
+	it("shows session resolution options 1 and 2", () => {
 		const msg = formatConflictMessage({
-			sessions: [
-				{
-					name: "s1",
-					localPath: "",
-					remotePath: "",
-					localModified: "",
-					remoteModified: "",
-				},
-			],
+			sessions: [makeConflict("s1")],
 			memoryFiles: [],
 		});
 		expect(msg).toContain("1. Overwrite local with remote");
@@ -296,83 +286,51 @@ describe("formatConflictMessage", () => {
 		expect(msg).toContain("--skip");
 	});
 
-	it("includes merge option when memory files conflict", () => {
+	it("warns about memory content loss with options 1 and 2", () => {
 		const msg = formatConflictMessage({
 			sessions: [],
-			memoryFiles: [
-				{
-					name: "MEMORY.md",
-					localPath: "/local/memory/MEMORY.md",
-					remotePath: "/remote/memory/MEMORY.md",
-					localModified: "1 hour(s) ago",
-					remoteModified: "3 hour(s) ago",
-				},
-			],
+			memoryFiles: [makeConflict("MEMORY.md")],
 		});
-		expect(msg).toContain("3. Merge memory files");
+		expect(msg).toContain("Warning");
+		expect(msg).toContain("lose memory file content");
+		expect(msg).toContain("AI coding agent");
 	});
 
-	it("includes agent-hint with step-by-step instructions", () => {
+	it("agent-hint: always merges memory before asking about sessions", () => {
 		const msg = formatConflictMessage({
-			sessions: [
-				{
-					name: "s1",
-					localPath: "",
-					remotePath: "",
-					localModified: "",
-					remoteModified: "",
-				},
-			],
-			memoryFiles: [
-				{
-					name: "MEMORY.md",
-					localPath: "/local/MEMORY.md",
-					remotePath: "/remote/MEMORY.md",
-					localModified: "",
-					remoteModified: "",
-				},
-			],
+			sessions: [makeConflict("s1")],
+			memoryFiles: [makeConflict("MEMORY.md")],
 		});
 		expect(msg).toContain("<agent-hint>");
-		expect(msg).toContain("Ask the user which option they prefer");
+		expect(msg).toContain("ALWAYS merge memory files");
+		expect(msg).toContain("ask the user which option");
 		expect(msg).toContain("baton pull --force");
-		expect(msg).toContain("baton pull --skip");
 		expect(msg).toContain("baton push");
-		expect(msg).toContain("merge their content");
 		expect(msg).toContain("</agent-hint>");
+
+		// Merge instruction comes before session choice
+		const mergeIdx = msg.indexOf("ALWAYS merge memory");
+		const askIdx = msg.indexOf("ask the user");
+		expect(mergeIdx).toBeLessThan(askIdx);
 	});
 
-	it("agent-hint for sessions only mentions force/skip", () => {
+	it("agent-hint for sessions only: asks user to choose", () => {
 		const msg = formatConflictMessage({
-			sessions: [
-				{
-					name: "s1",
-					localPath: "",
-					remotePath: "",
-					localModified: "",
-					remoteModified: "",
-				},
-			],
+			sessions: [makeConflict("s1")],
 			memoryFiles: [],
 		});
-		expect(msg).toContain("cannot be merged");
-		expect(msg).not.toContain("merge their content");
+		expect(msg).toContain("ask the user which option");
+		expect(msg).not.toContain("ALWAYS merge memory");
 	});
 
-	it("agent-hint for memory only mentions merge option", () => {
+	it("agent-hint for memory only: merges then syncs", () => {
 		const msg = formatConflictMessage({
 			sessions: [],
-			memoryFiles: [
-				{
-					name: "MEMORY.md",
-					localPath: "",
-					remotePath: "",
-					localModified: "",
-					remoteModified: "",
-				},
-			],
+			memoryFiles: [makeConflict("MEMORY.md")],
 		});
-		expect(msg).toContain("merge their content");
-		expect(msg).not.toContain("cannot be merged");
+		expect(msg).toContain("ALWAYS merge memory");
+		expect(msg).toContain("baton pull --skip");
+		expect(msg).toContain("baton push");
+		expect(msg).not.toContain("ask the user which option");
 	});
 });
